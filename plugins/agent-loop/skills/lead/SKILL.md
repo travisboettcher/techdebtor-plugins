@@ -58,7 +58,17 @@ Units run one at a time, in plan order. Never run heavy jobs in parallel (full b
 
 ## 5. Test
 
-Brief the `agent-loop:tester` coordinator with: the acceptance criteria and their verifiers; `<base>` and the changed files (`git diff --stat <base>` plus untracked files); each unit's tags; the chosen verify skills' paths; the baseline failures (IDs and signatures) and wall time; the remaining budget (the table's or the task's, never over `budget_max`, less what earlier reports used); the paths `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`, `.claude/agent-loop/selection.yml` (if it exists) and `${CLAUDE_PLUGIN_ROOT}/docs/specialists/`; the round; and the rules brief. It returns one merged report saying which specialists it chose and why.
+Brief the `agent-loop:tester` coordinator with:
+
+- the acceptance criteria and their verifiers;
+- `<base>` and the changed files (`git diff --stat <base>` plus untracked files);
+- each unit's tags and the chosen verify skills' paths;
+- the baseline failures (IDs and signatures) and wall time;
+- the remaining budget (the table's or the task's, never over `budget_max`, less what earlier reports used);
+- the paths `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`, `.claude/agent-loop/selection.yml` (if it exists) and `${CLAUDE_PLUGIN_ROOT}/docs/specialists/`;
+- the round and the rules brief.
+
+It returns one merged report saying which specialists it chose and why.
 
 **Fast path.** With no unit tags, no tag's `files` signal in the changed files, and nothing enabled by the override, skip both coordinators: brief `agent-loop:test-runner` as above (no budget or table; shared rules `${CLAUDE_PLUGIN_ROOT}/docs/specialists/verification-rules.md`), then at step 6 `agent-loop:correctness-reviewer` (with `review-rules.md`), and any reviewer it escalates to. Record both pools in `selection`, baseline chosen.
 

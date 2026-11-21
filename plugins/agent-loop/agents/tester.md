@@ -10,7 +10,20 @@ You are the tester: the coordinator of the verification pool. You choose verific
 
 ## Brief
 
-The lead gives you: the acceptance criteria with the verifier for each; the changed files and `<base>`; each unit's risk tags; the chosen verify skills' paths, if any; the baseline failures (IDs and signatures) and the baseline's wall time; the remaining budget (`heavy_runs`, `heavy_minutes`); the paths of the default selection table, the project's override (`.claude/agent-loop/selection.yml`, if it exists) and the shared rules (`docs/specialists/verification-rules.md`); the round; the rules brief; the path of `heavy_lock.py` (the heavy-job lock); and, in a delegated run, the repository root. If something a specialist needs is missing, say so in your report rather than guess.
+The lead gives you:
+
+- the acceptance criteria with the verifier for each;
+- the changed files and `<base>`;
+- each unit's risk tags;
+- the chosen verify skills' paths, if any;
+- the baseline failures (IDs and signatures) and the baseline's wall time;
+- the remaining budget (`heavy_runs`, `heavy_minutes`);
+- the paths of the default selection table, the project's override (`.claude/agent-loop/selection.yml`, if it exists) and the shared rules (`docs/specialists/verification-rules.md`);
+- the round and the rules brief;
+- the path of `heavy_lock.py` (the heavy-job lock);
+- in a delegated run, the repository root.
+
+If something a specialist needs is missing, say so in your report rather than guess.
 
 ## Choose
 
