@@ -46,7 +46,7 @@ Arguments given: `$ARGUMENTS`
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" --root "<ROOT>" --since 30d --max-signals 200 > "<OUT>"
 ```
 
-Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, `specialists` (below), and `ledgers.project` / `ledgers.user` (each rule with `superseded_by`, `occurrences_since`, split into `caught_by_rule` and `escaped`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
+Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, `specialists` and `test_levels` (below), and `ledgers.project` / `ledgers.user` (each rule with `superseded_by`, `occurrences_since`, split into `caught_by_rule` and `escaped`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
 
 Windows (`window`): the miner reads every run record in every worktree of the project whatever `--since` says, so each rule's `occurrences_since` already covers all records since its `added` date; only `category_counts` and `run_records.records` are limited to the requested window (`window.since`). Transcript signals reach further back: to the `added` date of the oldest ledger rule, at most 90 days (`window.transcripts_since`, with the reason in `window.transcripts_extended_for`). Signals older than `window.since` are there to verify ledger rules (step 2); do not count them toward new proposals (steps 3-4).
 
@@ -55,6 +55,12 @@ Windows (`window`): the miner reads every run record in every worktree of the pr
 - `selection`: the table's paths, its `retro` thresholds and any `errors` in the project's override.
 - `by_specialist`, per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses`, `miss_rate`, `overlap`, and those counts `by_tag` for the tags that selected it. `misses` are findings in its own categories, in a run that chose it, that it did not report and that escaped the swarm: caught by the human, CI, a hook or the dispatcher, or in a later round. `overlap` is the same, caught by another specialist in the same round.
 - `by_tag`, per tag: `runs` and the categories that `escaped`.
+
+`test_levels` attributes findings to test levels (`unit`, `component`, `contract`, `integration`, `service`, `system`; DESIGN.md "Test levels"), from every run record:
+- `planned`: the criteria planned at each target level.
+- `plans_by_reference`: the records whose `plan` is a path the miner does not open, so their levels are unknown (`specialists.plans_by_reference` counts them too: their plan tags are unknown).
+- `by_level`, per level: the findings whose `should_have_caught_at` names it, how many `escaped` the swarm, in how many runs (`runs_escaped`), and their `categories`.
+- `invalid`: levels the miner did not recognise.
 
 Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was only caution) before counting.
 
@@ -97,6 +103,8 @@ Scope:
 - Override `errors` are reported as found, not proposed around.
 The change goes in the project's `.claude/agent-loop/selection.yml` (create it as `schema: 1` if missing; its shape is DESIGN.md's "Specialists"), with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds or drops (`change: drop` for a drop), and `location: ".claude/agent-loop/selection.yml"`. A change the plugin's default table needs in every project is framework scope.
 
+**Test levels.** A level where escapes repeat, `test_levels.by_level.<level>.runs_escaped` at least `retro.add_after_escapes`, is a candidate (ranked with the rest): propose tests at that level for the behaviour that escaped (rung `test`, in the project's framework), and, where the same kind of criterion keeps going without them, an instruction for the lead's test plan (for example: every interface a unit touches gets a `contract` criterion). If that level's specialist is opt-in and not enabled, enabling it is a selection change (above). When few criteria were `planned` at that level and `plans_by_reference` is 0, say so: the gap starts in the plans. With plans given by path, say their levels are unknown instead.
+
 Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path; for a `selection`, the override file), `specialist` (a `selection` rule only), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 
 ### 5. Human gate
@@ -120,7 +128,7 @@ In `$WT`: first one commit `retro: verify ledger rules` with the history entries
 Finish with:
 
 1. **Rules verified**: table of id, category, occurrences since added, verdict, action.
-2. **Specialists**: table of specialist, runs, precision, misses (and miss rate), and the tags where it caught nothing or missed something; then each tag's escaped categories.
+2. **Specialists**: table of specialist, runs, precision, misses (and miss rate), and the tags where it caught nothing or missed something; then each tag's escaped categories, and the escapes per test level (`runs_escaped`, categories) next to the criteria planned there.
 3. **Proposals**: table of category, count, severity, rung, scope, where (branch + commit, diff awaiting yes, or framework-proposals.md).
 4. **Not proposed**: one-off notes, false positives discarded, candidates cut by the five-proposal limit, and why.
 5. How to review: `git log -p <default>..retro/YYYY-MM-DD`, then merge or delete the branch.
@@ -129,4 +137,4 @@ Delete the miner output at the end: `rm -f "<OUT>"` with the exact path `mktemp`
 
 ## Recording a session (`--record`)
 
-Write `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` for the current session in the run-record shape from `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md` (`schema: 1`, `date`, `task`, `repo`, `outcome`, `rounds`, `stages`, `findings`, optional `plan`, `plan_approved`, `baseline_failures`, `rejected`, `notes`). Findings are only things that went wrong and were caught (by a stage, a hook, CI or the human), each with a reused category (from `${CLAUDE_PLUGIN_ROOT}/docs/categories.md`, the ledgers or earlier records) where one fits. No secrets, private hostnames, personal data or quotes from the conversation; paraphrase. Show the file to the human after writing it. If `.claude/runs/` is not gitignored and the project has not decided, mention that committing or ignoring `.claude/runs/` is the project's choice.
+Write `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` for the current session in the run-record shape from `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md` (`schema: 1`, `date`, `task`, `repo`, `outcome`, `rounds`, `stages`, `findings` (with `should_have_caught_at` on each that escaped or got past a test, as DESIGN.md says), optional `plan`, `plan_approved`, `baseline_failures`, `rejected`, `notes`). Findings are only things that went wrong and were caught (by a stage, a hook, CI or the human), each with a reused category (from `${CLAUDE_PLUGIN_ROOT}/docs/categories.md`, the ledgers or earlier records) where one fits. No secrets, private hostnames, personal data or quotes from the conversation; paraphrase. Show the file to the human after writing it. If `.claude/runs/` is not gitignored and the project has not decided, mention that committing or ignoring `.claude/runs/` is the project's choice.

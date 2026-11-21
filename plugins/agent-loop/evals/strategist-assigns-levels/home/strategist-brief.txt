@@ -1,0 +1,24 @@
+Repository root: the current directory.
+Shared rules: @PLUGIN_ROOT@/docs/specialists/verification-rules.md
+Diff: `git diff HEAD` (the change is uncommitted; HEAD is the base, `<base>`).
+Changed files: textutil/index.py, textutil/links.py, tests/test_index.py, tests/test_links.py, tests/e2e/test_cli.py (all modified).
+Units and tags: one unit, "index pages by url", tags [public-api]. dump_index (textutil/index.py) writes the index; render_links (textutil/links.py) reads it; textutil/cli.py joins them.
+Acceptance criteria, each with its verifier. The plan gave no target levels: assign them.
+- C1: When dump_index is given titles, each index line shall carry the page's "url", "/<slug>/" (tests/test_index.py::IndexTest::test_url_field).
+- C2: When render_links reads an index line, it shall link the title to the line's "url" (tests/test_links.py::LinksTest::test_links_to_url).
+- C3: When two titles give the same slug, dump_index shall append "-2" to the later one's url: "Hello" then "hello!" give "/hello/" and "/hello-2/" (tests/e2e/test_cli.py::CliTest::test_duplicate_titles).
+Categories you own: wrong-test-level, missing-test-level, missing-contract-test, inverted-pyramid.
+The test runner's report:
+
+## Verification report
+Specialist: test-runner
+Checks:
+- `python3 -m unittest -q`: PASS
+- `classified from the full run` (level unit, by real dependencies): PASS
+  7 tests, 0 failed, 0 skipped, 0.01 s (tests/test_slug.py, tests/test_index.py, tests/test_links.py)
+- `classified from the full run` (level system, by real dependencies: runs the CLI as a process): PASS
+  2 tests, 0 failed, 0 skipped, 0.06 s (tests/e2e/test_cli.py)
+Wall time: 0.1 minutes
+Findings: none
+
+Rules brief: none.

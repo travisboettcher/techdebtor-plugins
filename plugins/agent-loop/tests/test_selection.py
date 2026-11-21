@@ -74,15 +74,109 @@ def test_guard_tags_have_a_floor_and_a_file_signal():
     floors = {tag: row["floor"] for tag, row in t.items() if "floor" in row}
     assert floors == {"permissions": ["permissions-reviewer"], "regex": ["fuzzer"],
                       "test-infra": ["measurement-auditor"], "untrusted-input": ["security-reviewer"],
-                      "security-sensitive": ["security-reviewer"]}
+                      "security-sensitive": ["security-reviewer"], "public-api": ["contract-tester"]}
     assert set(floors) <= {tag for tag, row in t.items() if row.get("files")}
     assert "Not ordinary" in t["test-infra"]["when"]
 
 
 def test_new_heavy_specialists_start_opt_in():
     specs = default()["specialists"]
-    for name in ("mutation-tester", "api-fuzzer", "system-tester", "perf-tester", "security-scanner"):
+    for name in ("mutation-tester", "api-fuzzer", "integration-tester", "service-tester", "system-tester",
+                 "perf-tester", "security-scanner"):
         assert specs[name]["opt_in"] is True and specs[name]["weight"] == "heavy", name
+
+
+LEVEL_SPECIALISTS = {"contract": "contract-tester", "integration": "integration-tester", "service": "service-tester",
+                     "system": "system-tester"}
+
+
+def test_risk_tags_call_for_test_levels():
+    # DESIGN.md "Test levels": an interface change selects the contract tester (its floor), real
+    # collaborators the integration tester, user-facing changes the system tester; the strategist runs
+    # for every tag that calls for a level above component, and whenever tests or test infrastructure change.
+    t = default()
+    tags, specs = t["tags"], t["specialists"]
+    calls = {lvl: {tag for tag, row in tags.items() if name in row["run"]} for lvl, name in LEVEL_SPECIALISTS.items()}
+    assert calls == {"contract": {"public-api", "test-stubs"}, "integration": {"io-boundary", "data-migration", "concurrency"},
+                     "service": {"deployable"}, "system": {"ui", "user-facing", "data-migration", "concurrency"}}
+    strategist = {tag for tag, row in tags.items() if "test-strategist" in row["run"]}
+    # user-facing text and defaults are proved at unit or component level: the strategist is not for it.
+    # test-stubs is about a stub's provenance, not a missing level.
+    assert strategist == set().union(*calls.values()) - {"user-facing", "test-stubs"} | {"test-infra", "test-changes"}
+    assert tags["test-changes"]["files"] and tags["public-api"]["files"]
+    for name in ("test-strategist", "contract-tester"):
+        assert specs[name]["weight"] == "light" and not specs[name].get("opt_in"), name
+    for name in ("integration-tester", "service-tester"):
+        assert specs[name]["weight"] == "heavy" and specs[name]["opt_in"] is True, name
+    assert "unverified-stub" in specs["service-tester"]["categories"] and tags["deployable"]["files"]
+    assert "test-strategist" not in t["baseline"]
+
+
+def test_test_changes_fires_on_removed_or_changed_test_lines_not_on_added_tests():
+    # A bug fix that adds a regression test to an existing file stays on the fast path.
+    row = default()["tags"]["test-changes"]
+    for text in (row["when"], row["files"]):
+        assert "not" in text and "add" in text, text
+    assert "--numstat" in row["files"]
+    lead = (PLUGIN / "skills/lead/SKILL.md").read_text()
+    fast = lead.split("**Fast path.**", 1)[1].split("\n## ", 1)[0]
+    assert "`test-changes`" in fast and "--numstat" in fast
+    assert "git diff --numstat <base>" in lead.split("## 5. Test", 1)[1].split("\n## ", 1)[0]
+
+
+def test_shape_findings_are_report_only_and_suggested_levels_never_block():
+    design = (PLUGIN / "docs/DESIGN.md").read_text().split("## Test levels", 1)[1].split("\n## ", 1)[0]
+    assert "report-only" in design and "never blocks" in design and "planned target level" in design
+    strategist = (PLUGIN / "agents/test-strategist.md").read_text()
+    assert "report_only: true" in strategist and "at `<base>`" in strategist and "enabled" in strategist
+    tester = (PLUGIN / "agents/tester.md").read_text()
+    assert "marks `report_only: true`" in tester
+    rules = (PLUGIN / "docs/specialists/verification-rules.md").read_text()
+    assert "report_only: true" in rules
+
+
+def test_design_shows_each_tags_when_and_files_signal_as_the_data_file_says():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    table = text.split("### The selection table", 1)[1].split("\n### ", 1)[0]
+    shown = dict(re.findall(r"^\| `([a-z-]+)` \| ([^|]+) \|", table, re.M))
+    tags = default()["tags"]
+    assert {t: w.strip() for t, w in shown.items()} == {t: row["when"] for t, row in tags.items()}
+    signals = text.split("### Risk tags and the baseline", 1)[1].split("\n### ", 1)[0]
+    for tag in ("deployable", "test-stubs"):
+        assert f"`{tag}`: {tags[tag]['files'].rstrip('.')}" in signals, tag
+
+
+def test_deployable_fires_only_for_a_repository_that_builds_an_image():
+    # A pyproject, .vale.ini or route-handler edit in a repository without a Dockerfile stays on the fast
+    # path; a Dockerfile edit selects the tag.
+    row = default()["tags"]["deployable"]
+    for text in (row["when"], row["files"]):
+        assert "Dockerfile" in text and "Containerfile" in text and "builds" in text, text
+        assert "configuration" not in text and "HTTP" not in text and "messaging" not in text, text
+    assert "health" in row["files"] and "migrations" in row["files"] and ".dockerignore" in row["files"]
+
+
+def test_the_contract_tester_owns_stubs_at_every_level():
+    t = default()
+    assert "unverified-stub" in t["specialists"]["contract-tester"]["categories"]
+    row = t["tags"]["test-stubs"]
+    assert row["run"] == ["contract-tester"] and "WireMock" in row["files"] and "fake-server" in row["files"]
+    tester = (PLUGIN / "agents/tester.md").read_text()
+    assert "charged against" in tester and "`contract-tester`" in tester
+    design = (PLUGIN / "docs/DESIGN.md").read_text()
+    assert "charged against the budget" in design
+
+
+def test_design_level_table_matches_the_data_file():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    section = text.split("## Test levels", 1)[1].split("\n## ", 1)[0]
+    rows = re.findall(r"^\| `(contract|integration|service|system)` \| ([^|]+) \| `([a-z-]+)`", section, re.M)
+    shown = {lvl: (set(re.findall(r"`([a-z-]+)`", tags)), name) for lvl, tags, name in rows}
+    tags = default()["tags"]
+    assert shown == {lvl: ({t for t, row in tags.items() if name in row["run"]}, name)
+                     for lvl, name in LEVEL_SPECIALISTS.items()}
+    for level in ("unit", "component", "contract", "integration", "service", "system"):
+        assert f"| `{level}` |" in section or f"`{level}`, " in section, level
 
 
 def test_every_specialist_category_is_in_the_catalog():
@@ -369,6 +463,13 @@ def test_records_without_a_selection_are_skipped_and_odd_shapes_do_not_crash():
     assert rep["by_specialist"]["fuzzer"]["runs"] == 2
 
 
+def test_plans_given_by_path_are_counted_for_tags_too():
+    rec = _rec(["regex"], ["fuzzer"])
+    rec["plan"] = ".claude/runs/x.plan.md"
+    rep = specialist_report([rec, _rec(["regex"], ["fuzzer"])], default())
+    assert rep["plans_by_reference"] == 1
+
+
 def test_diff_derived_tags_in_a_selection_entry_count():
     rec = _rec([], ["measurement-auditor"])
     rec["selection"][0]["tags"] = ["test-infra"]
@@ -524,3 +625,28 @@ def test_the_lead_has_a_fast_path_and_ignores_report_only_when_halting():
     assert "verification-rules.md" in fast and "review-rules.md" in fast and "`files` signal" in fast
     assert "When the review starts (coordinator or fast path)" in text
     assert "all blocking checks passing" in text and "blocking check BLOCKED" in text
+
+
+def test_the_plan_gives_each_criterion_a_target_level_and_the_lead_passes_it_on():
+    lead = (PLUGIN / "skills/lead/SKILL.md").read_text()
+    plan = lead.split("## 3. Plan", 1)[1].split("\n## ", 1)[0]
+    assert "**Test plan**" in plan and "target level" in plan and '"Test levels"' in plan
+    build = lead.split("## 4. Build each unit", 1)[1].split("\n## ", 1)[0]
+    assert "target level" in build
+    test = lead.split("## 5. Test", 1)[1].split("\n## ", 1)[0]
+    assert "target levels" in test
+    shape = (PLUGIN / "skills/lead/references/run-record.md").read_text()
+    assert "test_plan:" in shape and "level:" in shape and "should_have_caught_at" in shape
+    assert "target level" in (PLUGIN / "skills/lead/references/delegated.md").read_text()
+    writer = (PLUGIN / "agents/test-writer.md").read_text()
+    assert "target level" in writer and "(level <level>)" in writer
+
+
+def test_the_documented_test_plan_and_level_attribution_parse():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    example = text.split("## Run record", 1)[1].split("```yaml\n", 1)[1].split("```", 1)[0]
+    rec = parse_yaml_lite(example)
+    (entry,) = rec["plan"]["test_plan"]
+    assert set(entry) == {"criterion", "test", "level", "unit"} and entry["unit"] in rec["plan"]["units"]
+    assert entry["level"] in ("unit", "component", "contract", "integration", "service", "system")
+    assert [f.get("should_have_caught_at") for f in rec["findings"]] == [None, "contract"]

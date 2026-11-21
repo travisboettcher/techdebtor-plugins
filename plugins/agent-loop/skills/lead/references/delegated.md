@@ -32,7 +32,7 @@ summary: "<one line>"
 
 | Checkpoint | Its fields | Valid replies |
 |---|---|---|
-| `PLAN_READY` | `criteria` (each with its verifier, and whether you derived it), `plan` (approach, rejected alternative; units in order, each with its files, tags, verify skills and branch name), `test_plan`, `risks`, `out_of_scope`, `branch_budget`, `stack_parent` | `PLAN_APPROVED`, `PLAN_CHANGES`, `STOP` |
+| `PLAN_READY` | `criteria` (each with its verifier, and whether you derived it), `plan` (approach, rejected alternative; units in order, each with its files, tags, verify skills and branch name), `test_plan` (each criterion, its test, its target level and its unit), `risks`, `out_of_scope`, `branch_budget`, `stack_parent` | `PLAN_APPROVED`, `PLAN_CHANGES`, `STOP` |
 | `QUESTION` | `question`, `options` (if any), `context` | `ANSWER`, `STOP` |
 | `BLOCKED` | `blocked_on`, `needs` (what would unblock you), `tried` | `ANSWER`, `STOP` |
 | `PREPUSH_READY` | `diff_stat` (`git diff --shortstat <base>`); `stack` (bottom to top, each `branch`, `parent`, `commit`, `lines` changed against its parent); `stack_tool` (`gh-stack` or `plain`); `criteria` (each with its verifier, `PASS`, `FAIL` or `BLOCKED`, and evidence); `baseline` (`test_command`, `new_failures`, `fixed`, `still_failing`, with signatures); `claims` (below); `rejected` (each finding you rejected, with the reason); `required_checks` (what the project's `CLAUDE.md` requires before a push, and the generated-artifact checks, each with its result); `record_gate` (the exit code); `reviewed_diff`; `open` (report-only results, anything left) | `PREPUSH_FEEDBACK`, `PUSH_APPROVED`, `STOP` |

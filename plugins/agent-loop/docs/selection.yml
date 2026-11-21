@@ -10,7 +10,7 @@ budget_max:                   # the ceiling no override can raise
   heavy_minutes: 120
 retro:                        # thresholds for the retro's selection proposals; an override may change them
   drop_after_runs: 5          # propose dropping a specialist from a tag after this many runs there with no findings
-  add_after_escapes: 2        # propose adding one after its category escaped this many runs with the tag
+  add_after_escapes: 2        # propose adding one after its category escaped this many runs with the tag; also tests at a level escaped this many runs
 specialists:                  # pool: tester (verification) | reviewer (review); weight: light runs in parallel, heavy one at a time
   test-runner:
     pool: tester
@@ -24,6 +24,24 @@ specialists:                  # pool: tester (verification) | reviewer (review);
     pool: tester
     weight: light
     categories: []            # a verify skill's findings carry its own category
+  test-strategist:            # read-only; starts after the test runner, from its per-level report
+    pool: tester
+    weight: light
+    categories: [wrong-test-level, missing-test-level, missing-contract-test, inverted-pyramid]
+  contract-tester:            # light; starts after the test runner; suites and services go through the heavy-job lock
+    pool: tester
+    weight: light
+    categories: [missing-contract-test, interface-mismatch, breaking-change, unverified-stub]
+  integration-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [interface-mismatch, behaviour-regression, shared-state-false-failures]
+  service-tester:             # the packaged image through its real network interface; checks stub provenance
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [unverified-stub, behaviour-regression, interface-mismatch]
   fuzzer:
     pool: tester
     weight: heavy
@@ -68,7 +86,7 @@ specialists:                  # pool: tester (verification) | reviewer (review);
   api-reviewer:
     pool: reviewer
     weight: light
-    categories: [breaking-change, interface-mismatch]
+    categories: [breaking-change, interface-mismatch, missing-contract-test]
   docs-reviewer:
     pool: reviewer
     weight: light
@@ -91,24 +109,41 @@ tags:                         # when: what the lead tags; files: what the change
     floor: [permissions-reviewer]
   data-migration:
     when: "Changes stored data or its format: migrations, schema changes, backfills, formats older code still reads."
-    run: [system-tester, mutation-tester, api-reviewer]
+    run: [integration-tester, system-tester, mutation-tester, api-reviewer, test-strategist]
   public-api:
     when: "Changes an interface others depend on: a public function, HTTP API, CLI, events, a contract between components."
-    run: [api-fuzzer, api-reviewer, docs-reviewer]
+    files: "API specs and schemas (OpenAPI, AsyncAPI, protobuf, GraphQL, JSON Schema, Avro), contract test files or contract broker configuration."
+    run: [contract-tester, api-fuzzer, api-reviewer, docs-reviewer, test-strategist]
+    floor: [contract-tester]
+  io-boundary:
+    when: "Talks to a real collaborator across a process boundary: a database, queue, cache, file storage, or a network service or client."
+    run: [integration-tester, test-strategist]
+  deployable:
+    when: "In a repository that builds an image (a Dockerfile, Containerfile or image build config exists): changes its packaging, entrypoint or startup, the environment the image reads, migrations run on boot, or health or readiness endpoints."
+    files: "Only where the repository builds an image (a Dockerfile, Containerfile or image build config exists): a Dockerfile or Containerfile, .dockerignore, the service's compose files or image build config, entrypoint or startup scripts, environment templates the image reads, migrations run on boot, health or readiness endpoints."
+    run: [service-tester, test-strategist]
+  test-stubs:
+    when: "Adds or changes a stub of another service that tests run against, at any level: stub mappings, WireMock or fake-server definitions, recorded fixtures of a provider."
+    files: "Stub mappings, WireMock or fake-server definitions, recorded fixtures of a provider's responses."
+    run: [contract-tester]
   concurrency:
     when: "Threads, async, locks, queues, retries, or state shared by more than one worker."
-    run: [system-tester]
+    run: [integration-tester, system-tester, test-strategist]
   perf-sensitive:
     when: "Hot paths, loops over unbounded data, queries, caching, or a stated latency or size limit."
     run: [perf-tester]
   ui:
     when: "What a user sees or does in a browser or app."
-    run: [system-tester]
+    run: [system-tester, test-strategist]
   test-infra:
     when: "Test infrastructure: fixtures, conftest or setup files, runners, coverage or test config, CI test jobs. Not ordinary new test files."
     files: "Fixtures, conftest or setup files, test runner or coverage config, CI test jobs. Not ordinary test files."
-    run: [measurement-auditor]
+    run: [measurement-auditor, test-strategist]
     floor: [measurement-auditor]
+  test-changes:
+    when: "Removes or changes lines of existing tests, or deletes a test file; tests that are only added, even to an existing file, do not count."
+    files: "`git diff --numstat <base>` shows deleted lines in an existing test file, or a test file deleted; not files with added lines only."
+    run: [test-strategist]
   regex:
     when: "Adds or changes a regular expression or another backtracking matcher."
     files: "A changed file that defines a regular expression."
@@ -120,4 +155,4 @@ tags:                         # when: what the lead tags; files: what the change
     run: [security-scanner]
   user-facing:
     when: "Changes behaviour something else describes: options, defaults, output, errors, documented steps."
-    run: [docs-reviewer]
+    run: [docs-reviewer, system-tester]

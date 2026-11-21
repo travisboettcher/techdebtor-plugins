@@ -28,5 +28,6 @@ Findings:
   severity: minor | major | critical
   location: <path>:<line>, or the command
   detail: <what failed, with a reproduction>
+  report_only: true   (only when your Job says the finding never blocks)
 (or "Findings: none")
 ```

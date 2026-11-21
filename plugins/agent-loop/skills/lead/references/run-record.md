@@ -17,6 +17,11 @@ plan:                         # the plan record from step 3 (or a path to it)
   risks: ["..."]
   out_of_scope: ["..."]
   branch_budget: 300
+  test_plan:                  # each criterion, its test, its target level (step 3) and the unit that adds it
+    - criterion: "..."
+      test: "path::test_name"
+      level: unit             # unit | component | contract | integration | service | system
+      unit: "..."
   verify_skills:              # optional: the verify skills chosen per unit (references/verify-skills.md)
     - unit: "..."
       skills: [verify-<category>]
@@ -62,6 +67,7 @@ findings:
     caught_by: reviewer       # test-writer | tester | reviewer | implementer | lead | dispatcher | human | ci | hook | check | self
     specialist: docs-reviewer # as the report gives it: one name, or a list when merged
     round: 1                  # the round in which it was caught
+    should_have_caught_at: contract   # optional: the lowest test level whose test would have caught it
     fixed: true
 rejected:                     # optional: reported findings you showed were wrong
   - stage: review             # here: the stage that reported the wrong finding
@@ -75,6 +81,7 @@ Rules for the record:
 - A finding is something that went wrong and was caught. Not a summary of the work. A clean run has `findings: []`.
 - Record every finding from every stage and round: test-writer and tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief, a missed preflight check). Do not soften or omit them.
 - `stage` is where the mistake was made, never who caught it; `caught_by` is who caught it. A defect in the change found by anyone is `stage: implement`. A missing or wrong criterion or verifier, a wrong plan, a missed preflight check or a bad brief is `stage: plan`. `stage: test-write` is a wrong test. `caught_by: self` only when the stage that made the mistake caught it later (you, for your own plan); a plan or contract gap an agent reports is `caught_by` that agent (`implementer`, `test-writer`), and an agent's mistake you catch (a deviation, a misreported result, a test that cannot fail) is `caught_by: lead`. A verify skill's failure is `caught_by: check`, a hook's block `caught_by: hook`, and a finding the dispatcher's own rerun reported in a `PREPUSH_FEEDBACK` reply `caught_by: dispatcher` (DESIGN.md says why). `stage: test` / `stage: review` only for mistakes the tester or reviewer pool made itself. Findings from the coordinators carry the `specialist` their report names; add `report_only: true` where the report marks it.
+- `should_have_caught_at` goes on every finding that escaped the swarm (caught by the human, CI, a hook or the dispatcher, or in a later round) or that a test got past: the lowest level, `unit` to `system`, whose test would have caught it (DESIGN.md, "Test levels"). Leave it out when no test could have caught it (a process mistake).
 - `stages` lists every stage as it ran, and `reviewed_diff` is the fingerprint you took for the last review: `scripts/record_gate.py` checks both. Never add a stage that did not run or a fingerprint you did not take.
 - Reuse an existing category (the catalog and the others you listed in step 1) when one fits. Invent a new kebab-case category only when none does; name the kind of mistake, not the incident (`redaction-gap`, not a name for the one token that slipped through).
 - `outcome`: `completed` when the run finished, `in-progress` only if it stopped part-way, unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.

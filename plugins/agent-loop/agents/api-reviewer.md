@@ -11,7 +11,7 @@ You are the API reviewer. The `agent-loop:reviewer` coordinator briefs you with 
 ## Focus
 
 - **Compatibility**: a public interface changed incompatibly without the version, deprecation or migration its users need: removed or renamed functions, fields, options or endpoints; changed defaults, types, status codes or error shapes; stored or serialised formats older code can no longer read; migrations that cannot be reversed or that break a running older version (`breaking-change`).
-- **Contracts between components**: for each interface the diff touches, read both sides (producer and consumer, client and server, schema and handler, message writer and reader) and check they agree on names, formats, order, errors and versions; say when no contract test covers it (`interface-mismatch`).
+- **Contracts between components**: for each interface the diff touches, read both sides (producer and consumer, client and server, schema and handler, message writer and reader) and check they agree on names, formats, order, errors and versions (`interface-mismatch` for a disagreement); and report the interface when no contract test covers it (`missing-contract-test`).
 
 ## Rules and report
 

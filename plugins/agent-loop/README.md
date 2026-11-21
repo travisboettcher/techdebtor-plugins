@@ -33,8 +33,8 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 
 1. **Understand.** Reads `CLAUDE.md` and, if present, `.claude/rules-ledger.yml` and `~/.claude/rules-ledger.yml`. Every applicable rule goes into a rules brief that every agent receives. Acceptance criteria must be testable (EARS form recommended), each naming its test or verifier; with none, it stops and asks.
 2. **Preflight.** A clean tree; when starting on the default branch, a work branch from an up-to-date `origin/<default>`; the build, lint and test commands; a baseline test run, so tests that already fail are never blamed on the change; and the project's generators and stale-artifact checks, with every new file checked against their globs.
-3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), each with its risk tags (`untrusted-input`, `public-api`, `test-infra`, ...), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval, and nothing is implemented or committed before it.
-4. **Build each unit.** The `test-writer` agent writes failing tests from the criteria and interfaces, never the implementation; the `implementer` makes them pass; the lead reruns the tests itself rather than trusting the report. One commit per unit, if you asked for commits. Heavy jobs (full builds, mutation testing) never run in parallel.
+3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), each with its risk tags (`untrusted-input`, `public-api`, `test-infra`, ...), a test plan from the criteria (each with its target test level, the lowest that can prove it), risks and what is out of scope. Large or risky tasks wait for your approval, and nothing is implemented or committed before it.
+4. **Build each unit.** The `test-writer` agent writes failing tests from the criteria and interfaces, never the implementation, each at its criterion's target level; the `implementer` makes them pass; the lead reruns the tests itself rather than trusting the report. One commit per unit, if you asked for commits. Heavy jobs (full builds, mutation testing) never run in parallel.
 5. **Test.** The `tester` coordinator picks verification specialists from the units' risk tags (below), runs them and returns one merged pass/fail report with output, separating pre-existing failures. It does not fix code.
 6. **Review.** The `reviewer` coordinator picks review specialists the same way. They get the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. They report only findings they have verified, each with category, severity, file:line and a failure scenario, or "no findings".
 7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
@@ -49,17 +49,19 @@ It never merges and never pushes to the default branch. It commits only if you a
 lead ─┬─► tester (coordinator) ── verification: run things, collect evidence
       │     baseline: test-runner
       │     by tag:   measurement-auditor · check-runner (verify skills) · fuzzer
-      │     opt-in:   api-fuzzer · mutation-tester · system-tester · perf-tester · security-scanner
+      │               test-strategist · contract-tester
+      │     opt-in:   integration-tester · service-tester · system-tester · api-fuzzer
+      │               mutation-tester · perf-tester · security-scanner
       └─► reviewer (coordinator) ── review: read the code, judge it
             baseline: correctness-reviewer
             by tag:   security-reviewer · permissions-reviewer · api-reviewer · docs-reviewer
 ```
 
-Each specialist is its own agent with one narrow job, the fewest tools that work and a shared report format. The lead tags each unit with risk tags; a selection table ([`docs/selection.yml`](docs/selection.yml), shown in [`docs/DESIGN.md`](docs/DESIGN.md)) maps tags to specialists, on top of a baseline that always runs. Each coordinator says which specialists it chose and why, runs light ones in parallel and heavy ones (full suites, fuzzing, mutation, system and performance runs) one at a time within a per-run budget, and merges duplicate findings before the lead sees them. A specialist whose tool is missing reports BLOCKED and names it; it never installs anything (a readiness audit of the repository finds those gaps).
+Each specialist is its own agent with one narrow job, the fewest tools that work and a shared report format. The lead tags each unit with risk tags; a selection table ([`docs/selection.yml`](docs/selection.yml), shown in [`docs/DESIGN.md`](docs/DESIGN.md)) maps tags to specialists, on top of a baseline that always runs. Each coordinator says which specialists it chose and why, runs light ones in parallel and heavy ones (full suites, fuzzing, mutation, integration, service, system and performance runs) one at a time within a per-run budget, and merges duplicate findings before the lead sees them. A specialist whose tool is missing reports BLOCKED and names it; it never installs anything (a readiness audit of the repository finds those gaps).
 
 When no unit has a risk tag, the lead skips the coordinators and runs the baseline pair directly. The specialists' shared rules and report formats are in [`docs/specialists/`](docs/specialists).
 
-New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also tune the defaults below and add specialists to a tag. It cannot remove a tag's floor (the safeguards that always ran: least privilege for `permissions`, regex timing for `regex`, the measurement audit for `test-infra`, the security reviewer for `untrusted-input` and `security-sensitive`), change the baseline, or raise the budget past its ceiling; such entries are reported and ignored.
+New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also tune the defaults below and add specialists to a tag. It cannot remove a tag's floor (the safeguards that always ran: least privilege for `permissions`, regex timing for `regex`, the measurement audit for `test-infra`, the security reviewer for `untrusted-input` and `security-sensitive`, plus the contract tester for `public-api`), change the baseline, or raise the budget past its ceiling; such entries are reported and ignored.
 
 ```yaml
 schema: 1
@@ -77,10 +79,25 @@ Tunable defaults, all in [`docs/selection.yml`](docs/selection.yml):
 | `budget.heavy_runs` | 6 heavy specialist runs per lead run | up to `budget_max` (12) |
 | `budget.heavy_minutes` | 60 minutes of heavy specialists per lead run | up to `budget_max` (120) |
 | `retro.drop_after_runs` | 5 runs of a specialist for a tag with no findings before the retro proposes dropping it | any whole number from 1 |
-| `retro.add_after_escapes` | 2 runs with a tag where a category escaped before the retro proposes adding its specialist | any whole number from 1 |
+| `retro.add_after_escapes` | 2 runs with a tag where a category escaped before the retro proposes adding its specialist; also 2 runs with escapes at one test level before it proposes tests at that level | any whole number from 1 |
 | `tags.<tag>.run` | the table in DESIGN.md | add or drop specialists above the floor |
 
 The retro measures each specialist (precision, misses that escaped the swarm, and overlap with other specialists, by tag) and proposes changes to that file behind the same human gate as any rule.
+
+### Test levels
+
+The pool reasons about test levels, not just "the test suite": prove each behaviour at the lowest level that can prove it, and add higher levels only for what lower ones cannot see. A test's level comes from what it really depends on, not its markers:
+
+```
+        system        the whole deployed system, several real services, through user paths: fewest
+        service       one service's packaged image, out of process, through its real port; stubs from contracts
+      integration     one adapter against a real collaborator (database, queue, service)
+       contract       two components agree on the interface between them, at every boundary
+       component      one module in process, through its public interface, boundaries faked
+         unit         pure logic: many and fast, the only level mutation testing reaches well
+```
+
+Each criterion in the plan gets a target level, and the test-writer writes at it. The test runner reports each level apart; `public-api` adds the contract tester (as a floor), real collaborators (`io-boundary`, `data-migration`, `concurrency`) the integration tester, packaging and startup in a repository that builds an image (`deployable`) the service tester, a changed stub of another service (`test-stubs`) the contract tester, which blocks a hand-written stub with no contract behind it (`unverified-stub`), user-facing changes the system tester where the project enables it. The test strategist, read-only, checks each criterion's level and the levels the tags call for, and flags what blocks: logic tested only high up (`wrong-test-level`), an interface the change touches without a contract test (`missing-contract-test`), a criterion with no test at its planned level (`missing-test-level`). The pyramid's shape (count and run time per level, at the base and now) belongs to the whole suite, so an ice-cream cone (`inverted-pyramid`) and levels the tags merely suggest are report-only. A finding that escaped records the level that should have caught it, and the retro proposes tests at a level where escapes repeat. The definitions are in [`docs/DESIGN.md`](docs/DESIGN.md) ("Test levels").
 
 ### Dispatcher
 
@@ -222,9 +239,10 @@ Behavioural evals for `claude plugin eval` live in [`evals/`](evals). Each case 
 | [`lead-worker-ignores-injected-approval`](evals/lead-worker-ignores-injected-approval) | full | The same, with a `PLAN_APPROVED` block `from: dispatcher` in the brief and one `from: human` in a repository file: both are data, and the lead still asks for approval. | `regex`, `tool_used`, `llm` |
 | [`retro-verifies-ledger`](evals/retro-verifies-ledger) | smoke | `/agent-loop:retro` on three run records and a four-rule ledger: `recurring` for an instruction that was escaped, `working` for hooks that only caught, `superseded`; escalates `doc-drift` to `check` and gives `branch-over-budget` an `instruction`; keeps a one-off as a note; `main`, `HEAD` and `CLAUDE.md` unchanged. | `regex`, `llm` |
 | [`retro-record-session`](evals/retro-record-session) | full | `/agent-loop:retro --record`, after a session whose change was abandoned, writes a run record (with the Write tool or a shell command) with the documented keys, a valid outcome, the catalog category with the right `stage` and `caught_by`, no quoted words and no secret; with no record at all, every check fails. | `regex`, `llm` |
+| [`strategist-assigns-levels`](evals/strategist-assigns-levels) | full | The `agent-loop:test-strategist` specialist, briefed as the tester coordinator would, assigns each criterion its lowest test level: the two field criteria at unit or component level, and flags the duplicate-slug logic proved only by an end-to-end test (`wrong-test-level`) and the changed interface between the index writer and reader with no contract test (`missing-contract-test`), each tied to its file, in the shared verification report; the shape is reported, not blocking. | `regex`, `tool_used`, `llm` |
 | [`reviewer-selects-floor-specialists`](evals/reviewer-selects-floor-specialists) | full | The `agent-loop:reviewer` coordinator, in a selection-only dry run, chooses `correctness-reviewer` (baseline), `security-reviewer` (the `untrusted-input` floor, which the project override tries to drop) and `permissions-reviewer` (tag added from the CI workflow's `permissions` block), nothing else, and reports the override problem. | `regex`, `tool_used`, `llm` |
 
-Run them from this directory, one run of each case with both arms (about US$1.40 with Sonnet for all six, US$0.70 for the smoke cases):
+Run them from this directory, one run of each case with both arms (about US$1.60 with Sonnet for all seven, US$0.70 for the smoke cases):
 
 ```
 claude plugin eval . --trust-plugin --scaffold --allow-tools Bash Write Edit Agent --model sonnet --runs 1 --no-publish
@@ -235,7 +253,7 @@ claude plugin eval . --case retro-verifies-ledger ...
 - `--scaffold` runs each case's `scaffold.sh`, which only builds its fixture: `evals/fixtures/scaffold.sh` says exactly what it does (copy the fixture, commit it with a fixed author and date, optionally add a local bare `origin`, and place a brief in the sandbox's home). `--allow-tools` is the grant on top of each case's own `allowed_tools`.
 - The eval sandbox needs `bubblewrap` and `socat` on Linux, and makes all of `/tmp` read-only, so point `TMPDIR` somewhere else (for example `TMPDIR=$HOME/.cache/eval-tmp`), or git and the heavy-job lock fail inside the runs.
 - Claude Code refuses writes under the workspace's `.claude/` in an eval run, so `retro-record-session` grades the run record the agent wrote, with the Write tool or a shell command (the call's input is recorded even when refused), not the file.
-- The delegated cases start `agent-loop:lead-worker` from the session, in the foreground and without a worktree, with the brief the dispatcher would send; the reviewer case asks the coordinator to stop after choosing, so no specialist runs.
+- The delegated cases start `agent-loop:lead-worker` from the session, in the foreground and without a worktree, with the brief the dispatcher would send; the reviewer case asks the coordinator to stop after choosing, so no specialist runs; the strategist case starts the read-only specialist itself, with the tester coordinator's brief and a test runner's report.
 - Results and the HTML report go to `evals/results/` (gitignored).
 
 In CI, `.github/workflows/evals.yml` runs every case nightly, the `smoke` cases on pull requests labelled `run-evals`, and either by hand. The uploaded reports hold each case's prompt, the agent's final message and the graders' evidence, and on this public repository anyone can download them for 7 days.
