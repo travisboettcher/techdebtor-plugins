@@ -1096,7 +1096,10 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
         # A hook or check rule that caught a finding fired; only what got past it is a recurrence.
         own_catch = r.get("rung") if r.get("rung") in SELF_CATCHING_RUNGS else None
         # A selection rule put a specialist on a tag: that specialist's catches are the rule firing.
-        own_specialist = r.get("specialist") if r.get("rung") == "selection" else None
+        # One that dropped a specialist is judged on whether its category now escapes the swarm.
+        selection_rule = r.get("rung") == "selection"
+        dropped = selection_rule and r.get("change") == "drop"
+        own_specialist = r.get("specialist") if selection_rule and not dropped else None
         if added:
             for rec in records:
                 d = rec.get("date")
@@ -1107,7 +1110,8 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
                     if f.get("category") == r.get("category"):
                         occ += 1
                         if (own_catch and f.get("caught_by") == own_catch) or \
-                                (own_specialist and own_specialist in _reporters(f)):
+                                (own_specialist and own_specialist in _reporters(f)) or \
+                                (dropped and not _escaped(f)):
                             caught += 1
                         last = d if last is None or d > last else last
         history = r.get("history") if isinstance(r.get("history"), list) else []
@@ -1135,7 +1139,8 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
 
 DEFAULT_SELECTION = Path(__file__).resolve().parent.parent / "docs" / "selection.yml"
 OVERRIDE_SELECTION = Path(".claude") / "agent-loop" / "selection.yml"
-ESCAPE_CATCHERS = ("human", "ci")
+ESCAPE_CATCHERS = ("human", "ci", "hook")
+NOT_TAGS = ("baseline", "verify-skills")  # what else may select a specialist (`by`)
 
 
 def _names(value) -> list[str]:
@@ -1152,34 +1157,58 @@ def _reporters(f: dict) -> list[str]:
     return _names(f.get("specialist"))
 
 
+OVERRIDE_KEYS = ("schema", "enable", "blocking", "budget", "retro", "tags")
+FIXED_KEYS = ("baseline", "specialists", "budget_max")
+
+
+def _whole(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
 def merge_selection(default: dict, override) -> tuple[dict, list[str]]:
     """The effective table: ``default`` with a project's ``override`` applied.
 
     An override may set ``enable`` (opt-in specialists to run), ``blocking``
-    (enabled opt-in specialists whose findings block like any other), ``budget``
-    keys, and ``tags`` rows (a known tag's fields are replaced; a new tag needs
-    ``when`` and ``run``). It cannot change the baseline or the specialists.
-    Anything invalid is reported and ignored; the rest still applies."""
+    (enabled opt-in specialists whose findings block like any other),
+    ``budget`` keys (clamped to ``budget_max``), ``retro`` thresholds, and
+    ``tags`` rows: a known tag's ``run`` (and ``files``) are replaced, but its
+    ``floor`` specialists stay and its ``when`` cannot change; a new tag needs
+    ``when`` and ``run``. It cannot change ``baseline``, ``specialists``,
+    ``budget_max`` or any ``floor``. Anything else is reported and ignored."""
     specs = default.get("specialists") or {}
     table = {**default, "tags": {k: dict(v) for k, v in (default.get("tags") or {}).items()},
-             "budget": dict(default.get("budget") or {}), "enable": [], "blocking": []}
+             "budget": dict(default.get("budget") or {}), "retro": dict(default.get("retro") or {}),
+             "enable": [], "blocking": []}
+    ceiling = default.get("budget_max") or {}
     errors: list[str] = []
     if override is None:
         return table, errors
     if not isinstance(override, dict):
         return table, ["the override is not a mapping; using the default table"]
-    for key in ("baseline", "specialists"):
-        if key in override:
+    for key in override:
+        if key in FIXED_KEYS:
             errors.append(f"`{key}` cannot be overridden; ignored")
+        elif key not in OVERRIDE_KEYS:
+            errors.append(f"unknown key `{key}`; ignored")
     budget = override.get("budget")
-    if budget is not None:
-        for k, v in (budget.items() if isinstance(budget, dict) else []):
-            if k in table["budget"] and isinstance(v, int) and not isinstance(v, bool) and v >= 0:
-                table["budget"][k] = v
-            else:
-                errors.append(f"budget `{k}`: not a known key with a whole number; ignored")
-        if not isinstance(budget, dict):
-            errors.append("`budget` is not a mapping; ignored")
+    if budget is not None and not isinstance(budget, dict):
+        errors.append("`budget` is not a mapping; ignored")
+    for k, v in (budget.items() if isinstance(budget, dict) else []):
+        if k not in table["budget"] or not _whole(v) or v < 0:
+            errors.append(f"budget `{k}`: not a known key with a whole number of 0 or more; ignored")
+        elif k in ceiling and v > ceiling[k]:
+            errors.append(f"budget `{k}`: {v} is over budget_max ({ceiling[k]}); clamped")
+            table["budget"][k] = ceiling[k]
+        else:
+            table["budget"][k] = v
+    retro = override.get("retro")
+    if retro is not None and not isinstance(retro, dict):
+        errors.append("`retro` is not a mapping; ignored")
+    for k, v in (retro.items() if isinstance(retro, dict) else []):
+        if k in table["retro"] and _whole(v) and v >= 1:
+            table["retro"][k] = v
+        else:
+            errors.append(f"retro `{k}`: not a known key with a whole number of 1 or more; ignored")
     for name in _names(override.get("enable")):
         if specs.get(name, {}).get("opt_in"):
             table["enable"].append(name)
@@ -1191,20 +1220,34 @@ def merge_selection(default: dict, override) -> tuple[dict, list[str]]:
         else:
             errors.append(f"blocking `{name}`: only an enabled opt-in specialist can block; ignored")
     tags = override.get("tags")
+    if tags is not None and not isinstance(tags, dict):
+        errors.append("`tags` is not a mapping; ignored")
     for tag, row in (tags.items() if isinstance(tags, dict) else []):
-        if not isinstance(row, dict) or not set(row) <= {"when", "run"}:
-            errors.append(f"tag `{tag}`: expected `when` and `run`; ignored")
+        if not isinstance(row, dict) or not set(row) <= {"when", "files", "run", "floor"}:
+            errors.append(f"tag `{tag}`: expected `when`, `files` and `run`; ignored")
             continue
         unknown = [n for n in _names(row.get("run")) if n not in specs]
         if "run" in row and (unknown or not isinstance(row["run"], list)):
             errors.append(f"tag `{tag}`: unknown specialists {unknown or row['run']!r}; ignored")
             continue
-        if tag not in table["tags"] and not (isinstance(row.get("when"), str) and "run" in row):
+        known = table["tags"].get(tag)
+        if known is None and not (isinstance(row.get("when"), str) and "run" in row):
             errors.append(f"tag `{tag}`: a new tag needs `when` and `run`; ignored")
             continue
-        table["tags"][tag] = {**table["tags"].get(tag, {}), **row}
-    if tags is not None and not isinstance(tags, dict):
-        errors.append("`tags` is not a mapping; ignored")
+        row = dict(row)
+        if "floor" in row:
+            errors.append(f"tag `{tag}`: a `floor` cannot be set or changed; ignored")
+            row.pop("floor")
+        if known is not None and "when" in row and row["when"] != known.get("when"):
+            errors.append(f"tag `{tag}`: the `when` of a built-in tag cannot change; ignored")
+            row.pop("when")
+        merged = {**(known or {}), **row}
+        floor = _names((known or {}).get("floor"))
+        missing = [n for n in floor if n not in merged.get("run", [])]
+        if missing:
+            errors.append(f"tag `{tag}`: cannot remove its floor {missing}; kept")
+            merged["run"] = list(merged.get("run", [])) + missing
+        table["tags"][tag] = merged
     return table, errors
 
 
@@ -1215,18 +1258,19 @@ def load_selection(root, default_path: Path = DEFAULT_SELECTION) -> dict:
         default = parse_yaml_lite(Path(default_path).read_text(encoding="utf-8"))
         if not isinstance(default, dict):
             raise YamlLiteError("not a mapping")
-    except (OSError, YamlLiteError) as e:
-        return {"default": redact(str(default_path)), "override": None, "table": {},
+    except (OSError, YamlLiteError, RecursionError) as e:
+        return {"default": redact(str(default_path)), "override": None, "table": {}, "retro": {},
                 "errors": [f"cannot read the default table: {redact(str(e))}"]}
     override, over_path = None, Path(root) / OVERRIDE_SELECTION
-    if over_path.is_file():
+    present = over_path.exists()
+    if present:
         try:
             override = parse_yaml_lite(over_path.read_text(encoding="utf-8", errors="replace"))
-        except YamlLiteError as e:
-            errors.append(f"cannot parse the override: {redact(str(e))}; using the default table")
+        except (OSError, YamlLiteError, RecursionError) as e:
+            errors.append(f"cannot read the override: {redact(str(e)) or type(e).__name__}; using the default table")
     table, merge_errors = merge_selection(default, override)
-    return {"default": redact(str(default_path)), "override": str(OVERRIDE_SELECTION) if over_path.is_file() else None,
-            "table": table, "errors": errors + [redact(e) for e in merge_errors]}
+    return {"default": redact(str(default_path)), "override": str(OVERRIDE_SELECTION) if present else None,
+            "table": table, "retro": table.get("retro", {}), "errors": errors + [redact(e) for e in merge_errors]}
 
 
 def _run_tags(rec: dict, selection: list) -> set[str]:
@@ -1241,23 +1285,54 @@ def _run_tags(rec: dict, selection: list) -> set[str]:
     return tags
 
 
+def _chosen(selection: list) -> dict[str, dict]:
+    """Per chosen specialist: the tags that selected it and the first round it ran. An entry is a
+    ``{specialist, by}`` mapping (``by``: the tags, ``baseline`` or ``verify-skills``) or, in the plain form, a name."""
+    out: dict[str, dict] = {}
+    for entry in selection:
+        rnd = entry.get("round") if _whole(entry.get("round")) else 1
+        chosen = entry.get("chosen")
+        for c in chosen if isinstance(chosen, list) else _names(chosen):
+            if isinstance(c, dict):
+                name, by = c.get("specialist"), [t for t in _names(c.get("by")) if t not in NOT_TAGS]
+            else:
+                name, by = c, []
+            if not isinstance(name, str) or not name:
+                continue
+            o = out.setdefault(name, {"tags": set(), "first_round": rnd})
+            o["tags"].update(by)
+            o["first_round"] = min(o["first_round"], rnd)
+    return out
+
+
+def _escaped(f: dict, first_round: int | None = None) -> bool:
+    """Did the finding get past the swarm: caught by the human, CI or a hook, or in a later round?"""
+    if f.get("caught_by") in ESCAPE_CATCHERS:
+        return True
+    return first_round is not None and _whole(f.get("round")) and f["round"] > first_round
+
+
 def specialist_report(records, table: dict) -> dict:
     """Per specialist: runs it was chosen for, its findings and rejected findings
-    (precision), and its misses: findings in its own categories, in a run that
-    chose it, that it did not report. Per tag: runs and the categories that
-    escaped to the human or CI. Only records with a ``selection`` count."""
+    (precision), its misses (findings in its own categories, in a run that chose it,
+    that it did not report and that escaped the swarm: caught by the human, CI or a
+    hook, or in a later round) and its overlap (the same, but caught by another
+    specialist in the same run). ``by_tag`` credits only the tags that selected it.
+    Per tag: runs and the categories that escaped. Only records with a ``selection`` count."""
     specs = table.get("specialists") or {}
     by_spec: dict[str, dict] = {}
     by_tag: dict[str, dict] = {}
     counted = 0
+    keys = ("runs", "findings", "rejected", "misses", "overlap")
 
     def bump(name, tags, **n):
-        s = by_spec.setdefault(name, {"runs": 0, "findings": 0, "rejected": 0, "misses": 0, "by_tag": {}})
+        s = by_spec.setdefault(name, {**dict.fromkeys(keys, 0), "by_tag": {}})
+        for t in tags:
+            s["by_tag"].setdefault(t, dict.fromkeys(keys, 0))
         for k, v in n.items():
             s[k] += v
             for t in tags:
-                bt = s["by_tag"].setdefault(t, {"runs": 0, "findings": 0, "rejected": 0, "misses": 0})
-                bt[k] += v
+                s["by_tag"][t][k] += v
 
     for rec in records:
         sel = rec.get("selection")
@@ -1266,22 +1341,23 @@ def specialist_report(records, table: dict) -> dict:
             continue
         counted += 1
         tags = sorted(_run_tags(rec, sel))
-        chosen = {n for e in sel for n in _names(e.get("chosen"))}
         findings = _findings(rec)
         rejected = rec.get("rejected")
         rejected = [x for x in rejected if isinstance(x, dict)] if isinstance(rejected, list) else []
-        for name in sorted(chosen):
+        for name, c in sorted(_chosen(sel).items()):
             own = set(_names((specs.get(name) or {}).get("categories")))
-            bump(name, tags, runs=1,
+            mine = [f for f in findings if f.get("category") in own and name not in _reporters(f)]
+            misses = sum(_escaped(f, c["first_round"]) for f in mine)
+            bump(name, sorted(c["tags"]), runs=1,
                  findings=sum(name in _reporters(f) for f in findings),
                  rejected=sum(name in _reporters(x) for x in rejected),
-                 misses=sum(f.get("category") in own and name not in _reporters(f) for f in findings))
+                 misses=misses, overlap=len(mine) - misses)
         for t in tags:
             bt = by_tag.setdefault(t, {"runs": 0, "escaped": {}})
             bt["runs"] += 1
             for f in findings:
                 cat = f.get("category")
-                if f.get("caught_by") in ESCAPE_CATCHERS and isinstance(cat, str) and cat:
+                if _escaped(f) and isinstance(cat, str) and cat:
                     bt["escaped"][cat] = bt["escaped"].get(cat, 0) + 1
     for s in by_spec.values():
         judged = s["findings"] + s["rejected"]

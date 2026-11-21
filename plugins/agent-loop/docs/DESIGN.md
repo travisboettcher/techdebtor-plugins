@@ -108,7 +108,13 @@ selection:                    # optional: what each coordinator ran, per round (
   - pool: tester              # tester | reviewer
     round: 1
     tags: [untrusted-input, user-facing, regex]   # the effective tags: the plan's plus those the changed files showed
-    chosen: [test-runner, check-runner, fuzzer]
+    chosen:                   # each with the tags that selected it, or baseline
+      - specialist: test-runner
+        by: [baseline]
+      - specialist: check-runner
+        by: [verify-skills]
+      - specialist: fuzzer
+        by: [untrusted-input, regex]
     not_run:
       - specialist: mutation-tester
         reason: opt-in        # opt-in | budget
@@ -121,7 +127,13 @@ selection:                    # optional: what each coordinator ran, per round (
   - pool: reviewer
     round: 1
     tags: [untrusted-input, user-facing, regex]
-    chosen: [correctness-reviewer, security-reviewer, docs-reviewer]
+    chosen:
+      - specialist: correctness-reviewer
+        by: [baseline]
+      - specialist: security-reviewer
+        by: [untrusted-input]
+      - specialist: docs-reviewer
+        by: [user-facing]
 findings:                     # anything a later stage (or the human) had to catch or fix
   - stage: implement          # where the mistake was made: plan | test-write | implement | test | review
     category: generated-file-hand-edit   # kebab-case; reuse existing categories (see ledger) before inventing one
@@ -129,6 +141,7 @@ findings:                     # anything a later stage (or the human) had to cat
     detail: "Edited the generated compose file instead of its source."
     caught_by: reviewer       # who noticed: test-writer | tester | reviewer | implementer | lead | human | ci | hook | check | self
     specialist: correctness-reviewer   # optional: the specialist that reported it, or a list when reports were merged
+    round: 1                  # optional: the round in which it was caught
     fixed: true
 rejected:                     # optional: findings a stage reported that turned out to be wrong
   - stage: review             # here: the stage that reported the wrong finding
@@ -208,34 +221,36 @@ lead ──► agent-loop:tester (verification: runs things, collects evidence)
 
 Each specialist's own categories (the ones it should catch, which the retro's miss rate uses) are in `docs/selection.yml`. Verification specialists end with the shared verifier report (each check PASS, FAIL, PRE-EXISTING, BLOCKED or UNVERIFIED, with trimmed evidence); review specialists with the shared review report (each finding with category, severity, `file:line` and a concrete failure scenario, or "no findings"). No specialist name starts with `verify-`: that prefix is a project's verify skills.
 
-Every specialist that runs tools has the same rules: it never edits the repository (temporary files outside it only, removed afterwards), never installs anything, runs multi-step commands with `bash -c`, wraps long commands in `timeout`, cleans up after an aborted heavy run, and reports a missing tool, spec, credential or service as BLOCKED, naming what is missing. Those gaps are what a readiness audit of the repository measures; the specialist does not close them. Diff-scoped work reads the change since the run's `<base>` (the merge base the lead recorded), never a hard-coded default branch, so stacked branches work.
+Every specialist follows its pool's shared rules and report format, kept in one file per pool: `docs/specialists/verification-rules.md` and `docs/specialists/review-rules.md`. Whoever briefs a specialist (its coordinator, or the lead on the fast path) passes the file's path, and the specialist reads it first. For verification: never edit the repository (temporary files outside it only, removed afterwards), never install anything, run multi-step commands with `bash -c`, wrap long commands in `timeout`, clean up after an aborted heavy run, and report a missing tool, spec, credential or service as BLOCKED, naming what is missing. Those gaps are what a readiness audit of the repository measures; the specialist does not close them. Diff-scoped work reads the change since the run's `<base>` (the merge base the lead recorded), never a hard-coded default branch, so stacked branches work.
 
 At least one check in every run works from the criteria and not from the implementation: the test-writer's tests, and the reviewers, who get the criteria and the diff but never the implementer's reasoning. Green checks that share the code's own wrong assumptions are the trap this guards against.
 
 ### Risk tags and the baseline
 
-While planning, the lead tags each unit with the risk tags that apply (`plan.tags` in the run record). Every run gets the **baseline**, `test-runner` and `correctness-reviewer`, whatever the tags. A coordinator also adds tags the changed files show the lead missed: `test-infra` for tests, fixtures, test config, coverage or CI test jobs; `permissions` for `allowed-tools`, agent `tools`, settings permissions or hooks, CI tokens; `dependencies` for manifests and lockfiles; `regex` for a changed file that defines a regular expression. It says which it added. `check-runner` runs whenever the plan chose verify skills.
+While planning, the lead tags each unit with the risk tags that apply (`plan.tags` in the run record). Every run gets the **baseline**, `test-runner` and `correctness-reviewer`, whatever the tags. Some tags also have a `files` signal in the table: what the changed files show when the tag applies (`test-infra`: test infrastructure such as fixtures, conftest or setup files, runner, coverage or test config and CI test jobs, not ordinary new test files; `permissions`; `dependencies`; `regex`; `untrusted-input`: parsers, input handling, deserialisation; `security-sensitive`: auth, crypto, subprocess or shell calls, SQL built from strings, file paths). A coordinator adds any such tag the lead missed and says which. `check-runner` runs whenever the plan chose verify skills. The correctness reviewer also sweeps for obvious security holes and, finding one, asks its coordinator to add the security reviewer.
 
 ### The selection table
 
-The default table, `docs/selection.yml` (`${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`), maps each tag to the specialists it adds to the baseline:
+The default table, `docs/selection.yml` (`${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`), maps each tag to the specialists it adds to the baseline. The **floor** of a tag is the specialists no override can remove from it: the checks that ran unconditionally before there were specialists.
 
-| Tag | When | Adds |
-|---|---|---|
-| `untrusted-input` | Parses, decodes or acts on input from outside the trust boundary: requests, files, arguments, messages, environment. | `fuzzer`, `security-reviewer` |
-| `security-sensitive` | Auth, sessions, secrets, crypto, redaction or sanitising, path handling: code an attacker would target. | `security-scanner`, `mutation-tester`, `security-reviewer` |
-| `permissions` | Changes who or what may do something: allowed-tools, agent tools, settings permissions or hooks, CI tokens, roles, access rules. | `permissions-reviewer` |
-| `data-migration` | Changes stored data or its format: migrations, schema changes, backfills, formats older code still reads. | `system-tester`, `mutation-tester`, `api-reviewer` |
-| `public-api` | Changes an interface others depend on: a public function, HTTP API, CLI, events, a contract between components. | `api-fuzzer`, `api-reviewer`, `docs-reviewer` |
-| `concurrency` | Threads, async, locks, queues, retries, or state shared by more than one worker. | `system-tester` |
-| `perf-sensitive` | Hot paths, loops over unbounded data, queries, caching, or a stated latency or size limit. | `perf-tester` |
-| `ui` | What a user sees or does in a browser or app. | `system-tester` |
-| `test-infra` | Tests, fixtures, test config or runners, coverage or other measurement, CI test jobs. | `measurement-auditor` |
-| `regex` | Adds or changes a regular expression or another backtracking matcher. | `fuzzer` |
-| `dependencies` | Adds, removes or upgrades a dependency or lockfile. | `security-scanner` |
-| `user-facing` | Changes behaviour something else describes: options, defaults, output, errors, documented steps. | `docs-reviewer` |
+| Tag | When | Adds | Floor |
+|---|---|---|---|
+| `untrusted-input` | Parses, decodes or acts on input from outside the trust boundary: requests, files, arguments, messages, environment. | `fuzzer`, `security-reviewer` | `security-reviewer` |
+| `security-sensitive` | Auth, sessions, secrets, crypto, redaction or sanitising, path handling: code an attacker would target. | `security-scanner`, `mutation-tester`, `security-reviewer` | `security-reviewer` |
+| `permissions` | Changes who or what may do something: allowed-tools, agent tools, settings permissions or hooks, CI tokens, roles, access rules. | `permissions-reviewer` | `permissions-reviewer` |
+| `data-migration` | Changes stored data or its format: migrations, schema changes, backfills, formats older code still reads. | `system-tester`, `mutation-tester`, `api-reviewer` |  |
+| `public-api` | Changes an interface others depend on: a public function, HTTP API, CLI, events, a contract between components. | `api-fuzzer`, `api-reviewer`, `docs-reviewer` |  |
+| `concurrency` | Threads, async, locks, queues, retries, or state shared by more than one worker. | `system-tester` |  |
+| `perf-sensitive` | Hot paths, loops over unbounded data, queries, caching, or a stated latency or size limit. | `perf-tester` |  |
+| `ui` | What a user sees or does in a browser or app. | `system-tester` |  |
+| `test-infra` | Test infrastructure: fixtures, conftest or setup files, runners, coverage or test config, CI test jobs. Not ordinary new test files. | `measurement-auditor` | `measurement-auditor` |
+| `regex` | Adds or changes a regular expression or another backtracking matcher. | `fuzzer` | `fuzzer` |
+| `dependencies` | Adds, removes or upgrades a dependency or lockfile. | `security-scanner` |  |
+| `user-facing` | Changes behaviour something else describes: options, defaults, output, errors, documented steps. | `docs-reviewer` |  |
 
-**Opt-in and report-only.** New checks must not make the default run slower or fail work they were not meant to gate yet. So `api-fuzzer`, `mutation-tester`, `system-tester`, `perf-tester` and `security-scanner` are `opt_in`: a tag that selects one does not run it unless the project enables it (below). The coordinator lists it as not run, reason `opt-in`. An enabled opt-in specialist starts **report-only**: its findings are recorded (`report_only: true`) and shown to the human, but they do not start a fix round or block "done" until the project lists it under `blocking`.
+Every tunable default lives in that file: the `budget` and its ceiling `budget_max`, the retro's thresholds (`retro`: `drop_after_runs`, `add_after_escapes`), and each tag's specialists.
+
+**Opt-in and report-only.** New checks must not make the default run slower or fail work they were not meant to gate yet. So `api-fuzzer`, `mutation-tester`, `system-tester`, `perf-tester` and `security-scanner` are `opt_in`: a tag that selects one does not run it unless the project enables it (below). The coordinator lists it as not run, reason `opt-in`. An enabled opt-in specialist starts **report-only**: its checks and findings are marked report-only and shown to the human, but they do not start a fix round, block "done", or (for a BLOCKED check) stop the run, until the project lists it under `blocking`. When duplicate findings are merged, blocking wins: the merged finding is report-only only if every source was.
 
 **A project's override** lives in `<repo>/.claude/agent-loop/selection.yml`, with the same shape:
 
@@ -244,23 +259,25 @@ schema: 1
 enable: [mutation-tester]     # opt-in specialists this project runs
 blocking: [mutation-tester]   # enabled ones whose findings block like any other
 budget:
-  heavy_runs: 4               # replaces the default
+  heavy_runs: 4               # replaces the default, up to budget_max
+retro:
+  drop_after_runs: 8
 tags:
-  data-migration:             # a known tag: the fields given replace the default row's
+  data-migration:             # a known tag: `run` (and `files`) replace the default row's; the floor stays
     run: [system-tester, api-reviewer]
-  sql-migrations:             # a project tag needs both fields
+  sql-migrations:             # a project tag needs `when` and `run`
     when: "Adds or changes a file under migrations/."
     run: [system-tester]
 ```
 
-It cannot change the baseline or the specialists. Anything invalid (an unknown specialist, `blocking` for one that is not enabled, a new tag without `when`) is ignored and reported; the coordinator says so, and the retro's miner reports it under `specialists.selection.errors`. Overrides are rules: the retro proposes them behind the human gate, with a ledger entry (below).
+It may add specialists to a tag, drop ones above the floor, enable opt-in ones, lower or raise the budget up to `budget_max`, and tune the retro's thresholds. It can never change the baseline, the specialists, `budget_max`, a tag's floor, or the `when` of a built-in tag. Anything else (an unknown key or specialist, `blocking` for one that is not enabled, a new tag without `when`, an attempt to remove a floor) is ignored and reported, a budget over the ceiling is clamped to it, and the coordinator lists each under "Override problems"; the retro's miner reports them under `specialists.selection.errors`. Overrides are rules: the retro proposes them behind the human gate, with a ledger entry (below).
 
 ### Running them
 
+- **Fast path.** When no unit has a tag (from the plan, or the changed files' `files` signals) and the override enables nothing, the lead skips both coordinators and briefs `agent-loop:test-runner` and then `agent-loop:correctness-reviewer` itself, as their coordinators would. The record still lists both pools in `selection`, with the baseline chosen.
 - The coordinator states the effective tags, the specialists it chose and why (the baseline, which tag, verify skills), and those it did not run and why (`opt-in`, `budget`).
-- With no tags and no override file, a coordinator runs the baseline (and `check-runner` for verify skills) without reading the table, so the baseline path stays cheap.
 - Light specialists start together, in parallel. Heavy ones (anything that runs a full suite, mutation testing, fuzzing, system or performance runs) run one at a time, never two at once, and never while another heavy job of the run is going.
-- **Budget**, per lead run, for heavy specialists beyond the baseline: `heavy_runs` runs and `heavy_minutes` minutes of their wall time across all rounds (defaults 6 and 60; the project's override or the task text can change them). The lead passes what remains to the tester coordinator, which does not start a heavy specialist the remaining runs cannot cover and gives each one the remaining minutes as its time limit. One not started is listed as not run, reason `budget`; the lead asks the human whether to raise the budget rather than dropping it silently. The record's `selection` shows the budget and what was used.
+- **Budget**, per lead run, for heavy specialists beyond the baseline: `heavy_runs` runs and `heavy_minutes` minutes of their wall time across all rounds. The effective budget is the override's (clamped to `budget_max`) or else the default; the task text may lower it, or raise it up to `budget_max`. The lead passes what remains to the tester coordinator, which never starts a heavy specialist when the remaining runs or minutes are 0 or less, and gives each one the remaining minutes as its time limit (the baseline's `test-runner` has none). One not started is listed as not run, reason `budget`; the lead asks the human whether to raise the budget rather than dropping it silently. The record's `selection` shows the budget and what was used.
 - Specialists report to the coordinator, never to the lead. The coordinator merges findings that are the same defect (same location and cause), keeping the highest severity and every specialist that reported it, and returns one report.
 - In a later round the coordinator runs its selection again on the whole change; the budget still covers the whole run.
 
@@ -268,13 +285,13 @@ The coordinators' tools are `Agent`, `Read`, `Glob` and `Grep`: they read the br
 
 ### In run records
 
-`plan.tags` holds each unit's tags; `selection` holds, per coordinator and round, the effective tags, the specialists chosen, those not run with the reason, the budget and what was used; a finding carries `specialist` (one name, or the list of those whose reports were merged) besides `caught_by` (the pool: `tester` or `reviewer`, or `check` for a verify skill); `report_only: true` marks a finding from an enabled opt-in specialist that is not blocking. A `rejected` entry carries `specialist` too, so precision can be measured. All are optional; records without them stay valid. A verify skill's FAIL is `caught_by: check` with `specialist: check-runner`.
+`plan.tags` holds each unit's tags. `selection` holds, per coordinator and round, the effective tags, the specialists chosen (each with `by`: the tags that selected it, or `baseline`), those not run with the reason, the budget and what was used. A finding carries `specialist` (one name, or the list of those whose reports were merged) besides `caught_by` (the pool: `tester` or `reviewer`, or `check` for a verify skill), and `round`, the round in which it was caught; `report_only: true` marks one that did not block. A `rejected` entry carries `specialist` too, so precision can be measured. All are optional; records without them stay valid. A verify skill's FAIL is `caught_by: check` with `specialist: check-runner`.
 
 ### The ledger governs the table
 
-A change to the selection table is a rule: the retro proposes it in the project's override file behind the human gate, with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds or removes and `location: ".claude/agent-loop/selection.yml"`. It is verified like any rule: for a `selection` rule, a finding in its category that its specialist reported counts as `caught_by_rule`, and everything else escaped it. Changes to the plugin's default table are framework proposals.
+A change to the selection table is a rule: the retro proposes it in the project's override file behind the human gate, with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds (or, with `change: drop`, drops) and `location: ".claude/agent-loop/selection.yml"`. It is verified like any rule. For a rule that adds a specialist, a finding in its category that the specialist reported counts as `caught_by_rule`, and everything else escaped it. For one that drops a specialist, the question is whether dropping it let its category through: a finding the swarm still caught counts as `caught_by_rule`, and one that escaped the swarm (below) is `escaped`. Changes to the plugin's default table are framework proposals.
 
-The retro measures each specialist from the run records: per specialist and per tag, the runs that chose it, its findings, its rejected findings (precision: findings over findings plus rejected) and its misses (a finding in one of its own categories, in a run that chose it, that it did not report; miss rate: misses over findings plus misses); and per tag, the categories that escaped to the human or CI. A specialist that never catches anything for a tag is a candidate to drop from it; a category that escapes runs with a tag is a candidate for adding the specialist that owns it.
+The retro measures each specialist from the run records: per specialist, and per tag that selected it, the runs that chose it, its findings, its rejected findings (precision: findings over findings plus rejected), its **misses** and its **overlap**. A miss is a finding in one of its own categories, in a run that chose it, that it did not report and that escaped the swarm: caught by the human, CI or a hook, or in a later round than the one it first ran in (miss rate: misses over findings plus misses). Overlap is the same kind of finding caught by another specialist in the same round: not a miss, but a sign two specialists cover the same ground. Per tag, the miner also lists the categories that escaped. A specialist that ran `drop_after_runs` times for a tag and caught nothing there is a candidate to drop from it; a category that escaped `add_after_escapes` runs with a tag is a candidate for adding the specialist that owns it.
 
 ## Measurement invariants
 
