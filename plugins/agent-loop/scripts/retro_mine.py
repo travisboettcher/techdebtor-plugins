@@ -9,7 +9,8 @@ Standard library only (Python 3.11+). Prints one JSON document to stdout:
 - ``run_records`` / ``category_counts``: findings from ``.claude/runs/*.yml``
   in every worktree of the project (counts are scoped to ``--since``).
 - ``ledgers``: every rule in the project and user rules ledgers, with the
-  occurrences of its category in all run records since the rule was added.
+  occurrences of its category in all run records since the rule was added,
+  split into those a hook or check rule caught itself and those that escaped it.
 - ``window``: the windows actually used. Transcript signals reach back past
   ``--since`` to the oldest ledger rule's ``added`` date, at most 90 days, so
   every rule can be verified against signals since it was added.
@@ -1066,6 +1067,11 @@ def load_ledger(path, scope: str) -> dict | None:
         return {"path": str(path), "scope": scope, "rules": [], "error": redact(str(e)), "raw": redact(text)[:8000]}
 
 
+# Rungs whose rule reports its own catches as a finding's caught_by (hook, check). For the
+# others (an instruction, a test) a catch cannot be told apart from an escape, so all escape.
+SELF_CATCHING_RUNGS = ("hook", "check")
+
+
 def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
     if ledger is None:
         return None
@@ -1074,10 +1080,14 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
         try:
             added = _iso_date(r.get("added"))
         except ValueError as e:
-            rules.append({**r, "error": str(e), "occurrences_since": None, "last_occurrence": None,
+            rules.append({**r, "superseded_by": r.get("superseded_by"), "error": str(e),
+                          "occurrences_since": None, "caught_by_rule": None,
+                          "escaped": None, "last_occurrence": None,
                           "records_since_added": None, "days_since_added": None, "last_verdict": None})
             continue
-        occ, last, active = 0, None, 0
+        occ, caught, last, active = 0, 0, None, 0
+        # A hook or check rule that caught a finding fired; only what got past it is a recurrence.
+        own_catch = r.get("rung") if r.get("rung") in SELF_CATCHING_RUNGS else None
         if added:
             for rec in records:
                 d = rec.get("date")
@@ -1087,12 +1097,17 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
                 for f in _findings(rec):
                     if f.get("category") == r.get("category"):
                         occ += 1
+                        if own_catch and f.get("caught_by") == own_catch:
+                            caught += 1
                         last = d if last is None or d > last else last
         history = r.get("history") if isinstance(r.get("history"), list) else []
         last_hist = history[-1] if history and isinstance(history[-1], dict) else {}
         rules.append({
             **r,
+            "superseded_by": r.get("superseded_by"),  # a higher-rung rule replaced it: never escalated again
             "occurrences_since": occ,
+            "caught_by_rule": caught,
+            "escaped": occ - caught,
             "last_occurrence": last,
             "records_since_added": active,
             "days_since_added": (now.date() - date.fromisoformat(added)).days if added else None,

@@ -1,6 +1,6 @@
 # Writing a `hook`-rung rule
 
-A hook is the right rung only when the mistake can be checked mechanically from the tool call alone (path, command, content), with no judgement. If it needs judgement, keep it an instruction and make the instruction clearer.
+A hook is the right rung only when the mistake can be checked mechanically from the tool call alone (path, command, content), with no judgement. If it needs judgement, it is a `check` instead (`verify-skill.md`), or, before an instruction exists, a clearer instruction.
 
 ## Shape
 

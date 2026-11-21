@@ -46,7 +46,7 @@ Arguments given: `$ARGUMENTS`
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" --root "<ROOT>" --since 30d --max-signals 200 > "<OUT>"
 ```
 
-Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `occurrences_since`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
+Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `superseded_by`, `occurrences_since`, split into `caught_by_rule` and `escaped`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
 
 Windows (`window`): the miner reads every run record in every worktree of the project whatever `--since` says, so each rule's `occurrences_since` already covers all records since its `added` date; only `category_counts` and `run_records.records` are limited to the requested window (`window.since`). Transcript signals reach further back: to the `added` date of the oldest ledger rule, at most 90 days (`window.transcripts_since`, with the reason in `window.transcripts_extended_for`). Signals older than `window.since` are there to verify ledger rules (step 2); do not count them toward new proposals (steps 3-4).
 
@@ -54,15 +54,16 @@ Signals are heuristics. Discard false positives (a "no" that answered a question
 
 ### 2. Verify every ledger rule
 
-For each rule in both ledgers, add to the run-record occurrences (`occurrences_since`) any signals that clearly belong to the rule's category and are dated after `added`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
+For each rule in both ledgers, add to the run-record escapes (`escaped`) any signals that clearly belong to the rule's category and are dated after `added`; a signal is always an escape. `caught_by_rule` counts findings a `hook` or `check` rule caught itself: the rule fired, and those never make it `recurring`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
 
 | Verdict | When | Action |
 |---|---|---|
-| `working` | no occurrence since `added` | keep |
-| `recurring` | one or more | propose the next rung up, or a rewrite if the rule is unclear or the agent could not have seen it |
+| `working` | nothing escaped since `added` (catches by the rule itself allowed) | keep; if it catches constantly, note that the instruction upstream may be unclear, but do not escalate |
+| `recurring` | one or more escaped | propose the next rung up, or a rewrite if the rule is unclear or the agent could not have seen it; for a `check`, see DESIGN.md "Verify skills" (escalation) |
+| `superseded` | the rule has `superseded_by` (a higher-rung rule replaced it) | report it with its counts; never escalate it |
 | `dormant` | no occurrence, `days_since_added` >= 90, and no relevant work in 90 days (no record or signal touching what the rule guards) | propose retiring it |
 
-Also confirm the rule still exists at `location`; a missing rule is reported, not silently re-added. Prepare one `history` entry per rule (`date`, `occurrences_since`, `verdict`); these go in the proposal commit, not on the default branch.
+Also confirm the rule still exists at `location`; a missing rule is reported, not silently re-added. Prepare one `history` entry per rule (`date`, `occurrences_since`, `caught_by_rule`, `escaped`, `verdict`); these go in the proposal commit, not on the default branch.
 
 ### 3. Cluster
 
@@ -74,7 +75,8 @@ Rank candidates by recurrence x severity (critical = 3, major = 2, minor = 1) an
 
 Rung (the ladder):
 - `instruction`: seen twice, or once at `critical`. Write the actual text and name the file (CLAUDE.md, a skill, memory). One or two sentences, phrased as what to do, with the reason.
-- `hook`: it recurs after an instruction exists **and** a script can check it mechanically. Write the actual hook config and script (see `${CLAUDE_SKILL_DIR}/references/hooks.md`).
+- `check`: it recurs after an instruction exists, deciding a violation needs judgment, **and** the decision can be written as a repeatable procedure. Write the actual verify skill, `verify-<category>`, from the template in `${CLAUDE_SKILL_DIR}/references/verify-skill.md`.
+- `hook`: it recurs after an instruction (or a check) exists **and** a script can check it mechanically. Write the actual hook config and script (see `${CLAUDE_SKILL_DIR}/references/hooks.md`).
 - `test`: the mistake is about the code's behaviour, not process. Write the actual test in the project's framework.
 
 Scope:
@@ -82,7 +84,7 @@ Scope:
 - `user`: the human's preferences or environment across repos (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/.claude/skills`, memory).
 - `framework`: would help anyone using these plugins (a missing reviewer check, a better lead prompt, a new catalog category with its description, usual stage and cheapest rule).
 
-Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location`, `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
+Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 
 ### 5. Human gate
 
@@ -94,9 +96,9 @@ WT=$(mktemp -d /tmp/retro-wt-XXXXXX)
 git worktree add -b "$BR" "$WT" <default-branch>
 ```
 
-In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing). Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
+In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, verify skill, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing); an escalation also sets the lower rule's `superseded_by` to the new rule's id, in the same commit. Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added; follow a new verify skill's procedure once, read-only, as its reference says. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
 
-**User scope.** Show each change as a unified diff against the current file (including the `~/.claude/rules-ledger.yml` entry) and ask. Apply only the ones the human approves, exactly as shown.
+**User scope.** Show each change as a unified diff against the current file, or against nothing for a new one such as `~/.claude/skills/verify-<category>/SKILL.md` (including the `~/.claude/rules-ledger.yml` entry), and ask. Apply only the ones the human approves, exactly as shown.
 
 **Framework scope.** Append to `<repo>/.claude/runs/framework-proposals.md` (create it if missing): a dated heading, the category, count and severity, the proposed change to the plugin, and paraphrased evidence only (no `excerpt` text, quoted or not). Never file it anywhere.
 

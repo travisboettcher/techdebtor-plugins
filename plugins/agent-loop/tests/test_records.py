@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -479,3 +480,130 @@ def test_record_with_gate_fields_parses(tmp_path):
     assert errors == []
     assert recs[0]["trunk"] == "origin/main"
     assert {"base", "reviewed_diff", "plan_approved"} <= set(recs[0])
+
+
+# --- the check rung -------------------------------------------------------------
+
+CHECK_LEDGER = """\
+schema: 1
+rules:
+  - id: doc-drift-2
+    category: doc-drift
+    rung: check                # a verify skill
+    scope: project
+    location: ".claude/skills/verify-doc-drift/SKILL.md"
+    summary: "Every other description of a changed option or default says the same."
+    added: 2026-11-10
+    baseline: 2
+    history: []
+"""
+
+
+def test_ledger_accepts_the_check_rung(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(CHECK_LEDGER)
+    recs = [{"date": "2026-11-12", "findings": [{"category": "doc-drift", "severity": "minor"}]},
+            {"date": "2026-11-09", "findings": [{"category": "doc-drift", "severity": "minor"}]}]
+    rep = ledger_report(load_ledger(p, "project"), recs, NOW)
+    (rule,) = rep["rules"]
+    assert "error" not in rule
+    assert rule["rung"] == "check"
+    assert rule["location"] == ".claude/skills/verify-doc-drift/SKILL.md"  # survives redaction intact
+    assert rule["occurrences_since"] == 1  # counted like any other rung
+
+
+def test_cli_reports_a_check_rule(tmp_path):
+    root = tmp_path / "repo"
+    _write(root, "2026-11-20-a.yml", RECORD.replace("2026-11-21", "2026-11-20").replace(
+        "generated-file-hand-edit   # kebab-case", "doc-drift"))
+    (root / ".claude" / "rules-ledger.yml").write_text(CHECK_LEDGER)
+    out = subprocess.run([sys.executable, str(SCRIPT), "--root", str(root), "--since", "2026-11-01",
+                          "--transcripts", str(tmp_path / "none.jsonl"), "--user-ledger", str(tmp_path / "none.yml")],
+                         capture_output=True, text=True, check=True)
+    (rule,) = json.loads(out.stdout)["ledgers"]["project"]["rules"]
+    assert rule["rung"] == "check" and rule["occurrences_since"] == 1
+
+
+def test_record_with_verify_skills_in_the_plan_parses_and_passes_the_gate(tmp_path):
+    from record_gate import approval_failures, review_failures
+    text = PLAN_RECORD.replace("  branch_budget: 300\n", "  branch_budget: 300\n  verify_skills:\n"
+                               "    - unit: \"flag parsing and help text\"\n      skills: [verify-doc-drift]\n")
+    text = text.replace("baseline_failures:", "plan_approved: n/a\nbaseline_failures:", 1)
+    _write(tmp_path, "2026-11-21-v.yml", text)
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    assert recs[0]["plan"]["verify_skills"] == [{"unit": "flag parsing and help text", "skills": ["verify-doc-drift"]}]
+    rec = parse_yaml_lite(text)
+    assert review_failures(rec) == []
+    assert approval_failures(rec, required=False, repo=None, base=None) == []
+
+
+# --- catches by the rule itself are not escapes ------------------------------------
+
+def _rule_ledger(rung, category="doc-drift"):
+    return (f"schema: 1\nrules:\n  - id: {category}-1\n    category: {category}\n    rung: {rung}\n"
+            f"    scope: project\n    location: x\n    summary: s\n    added: 2026-11-10\n    baseline: 2\n    history: []\n")
+
+
+def _report(tmp_path, rung, *caught_by):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger(rung))
+    recs = [{"date": "2026-11-12", "findings": [{"category": "doc-drift", "caught_by": c} for c in caught_by]},
+            {"date": "2026-11-09", "findings": [{"category": "doc-drift", "caught_by": "human"}]}]  # before the rule
+    (rule,) = ledger_report(load_ledger(p, "project"), recs, NOW)["rules"]
+    return rule
+
+
+@pytest.mark.parametrize("rung", ["hook", "check"])
+def test_catches_by_the_rule_itself_are_not_escapes(tmp_path, rung):
+    rule = _report(tmp_path, rung, rung, rung)
+    assert (rule["occurrences_since"], rule["caught_by_rule"], rule["escaped"]) == (2, 2, 0)
+
+
+@pytest.mark.parametrize("rung", ["hook", "check"])
+def test_a_finding_caught_by_anyone_else_escaped(tmp_path, rung):
+    rule = _report(tmp_path, rung, rung, "human")
+    assert (rule["occurrences_since"], rule["caught_by_rule"], rule["escaped"]) == (2, 1, 1)
+
+
+@pytest.mark.parametrize("rung, other", [("hook", "check"), ("check", "hook")])
+def test_another_rungs_catch_is_an_escape(tmp_path, rung, other):
+    rule = _report(tmp_path, rung, other)
+    assert (rule["caught_by_rule"], rule["escaped"]) == (0, 1)
+
+
+@pytest.mark.parametrize("rung", ["instruction", "test", "note"])
+def test_other_rungs_count_every_occurrence_as_escaped(tmp_path, rung):
+    rule = _report(tmp_path, rung, "hook", "check", "tester", "ci")
+    assert (rule["occurrences_since"], rule["caught_by_rule"], rule["escaped"]) == (4, 0, 4)
+
+
+def test_split_is_none_for_a_rule_with_a_bad_date(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger("hook").replace("2026-11-10", "2026-02-30"))
+    (rule,) = ledger_report(load_ledger(p, "project"), [], NOW)["rules"]
+    assert rule["caught_by_rule"] is None and rule["escaped"] is None
+
+
+@pytest.mark.parametrize("doc", ["docs/DESIGN.md", "skills/lead/references/run-record.md"])
+def test_caught_by_lists_include_check(doc):
+    text = (SCRIPT.parent.parent / doc).read_text()
+    (values,) = re.findall(r"caught_by: reviewer +# (?:who noticed: )?(.*)$", text, re.M)
+    assert "check" in values.split(" | ") and "hook" in values.split(" | ")
+
+
+def test_superseded_by_is_reported(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger("instruction").replace("    history: []\n", "    superseded_by: doc-drift-2\n    history: []\n")
+                 + _rule_ledger("check").split("rules:\n", 1)[1].replace("doc-drift-1", "doc-drift-2"))
+    old, new = ledger_report(load_ledger(p, "project"), [], NOW)["rules"]
+    assert old["superseded_by"] == "doc-drift-2"
+    assert new["superseded_by"] is None  # always present, so the retro can test it
+
+
+def test_history_with_the_escape_split_passes_through(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger("hook").replace("    history: []\n", "    history:\n      - date: 2026-11-15\n"
+                 "        occurrences_since: 2\n        caught_by_rule: 2\n        escaped: 0\n        verdict: working\n"))
+    (rule,) = ledger_report(load_ledger(p, "project"), [], NOW)["rules"]
+    assert rule["history"][0]["escaped"] == 0 and rule["last_verdict"] == "working"
