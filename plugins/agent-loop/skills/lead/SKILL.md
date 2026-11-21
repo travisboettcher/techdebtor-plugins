@@ -31,6 +31,8 @@ Break the task into steps. For each step give:
 - **Verifier**: the exact test, command or check that proves each criterion. Prefer the project's own verifiers. If a criterion has no verifier, the first implement step writes one (a failing test where the project has tests).
 - **Depends on**: earlier steps, if any.
 
+When a step handles untrusted input or is security-sensitive (redaction or sanitising, parsing, auth, input validation, path handling, permission rules), its acceptance criteria include an **adversarial input list**: inputs glued to neighbours (`_`, `-`, no space), quoted (with spaces, escapes), prefixed and suffixed variants, split across a boundary or cut short, oversized, malformed or empty; and a **must-not-match list** bounding over-matching. Give both lists to the implementer, tester and reviewer. For permission changes, state the narrowest acceptable entries as criteria.
+
 Show the plan. If the task is large or risky (touches many files, changes data formats or public interfaces, deletes or migrates anything, is hard to reverse, or the human sounded unsure), ask the human to approve the plan before implementing. Otherwise proceed.
 
 ## 3. Implement
@@ -39,7 +41,7 @@ Brief the `agent-loop:implementer` agent with: the step(s), the acceptance crite
 
 - Run implementers in parallel only for steps that are independent and touch non-overlapping files. Otherwise run them one at a time.
 - Never run heavy jobs in parallel: full builds, full test suites, mutation testing, fuzzing, large dependency installs. Tell every agent you brief that heavy jobs run one at a time.
-- Read the implementer's report. If it says it deviated from the plan, decide whether the deviation is acceptable before moving on.
+- Read the implementer's report. If it says it deviated from the plan, decide whether the deviation is acceptable before moving on. A gap it found in your plan is a finding (`stage: plan`, `caught_by: implementer`); a deviation you reject is one too (`stage: implement`, `caught_by: lead`).
 
 ## 4. Test
 
@@ -55,6 +57,8 @@ Brief the `agent-loop:reviewer` agent with only:
 - the diff (`git diff` against the starting point, plus any new untracked files; tell it how to get them),
 - the acceptance criteria,
 - the rules brief.
+
+The reviewer applies a standing least-privilege check to any permission change (`over-broad-pre-approval`).
 
 Do **not** pass the implementer's reasoning, its report, the tester's report, or your own opinion of the change. The reviewer's value is an independent read.
 
@@ -89,7 +93,7 @@ findings:
     category: kebab-case-category
     severity: major           # minor | major | critical
     detail: "What went wrong, in one or two sentences."
-    caught_by: reviewer       # tester | reviewer | human | ci | hook | self
+    caught_by: reviewer       # tester | reviewer | implementer | lead | human | ci | hook | self
     fixed: true
 rejected:                     # optional: reported findings you showed were wrong
   - stage: review             # here: the stage that reported the wrong finding
@@ -101,7 +105,7 @@ notes: "Optional free text."
 Rules for the record:
 - A finding is something that went wrong and was caught. Not a summary of the work. A clean run has `findings: []`.
 - Record every finding from every stage and round: tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief). Do not soften or omit them.
-- `stage` is where the mistake was made, never who caught it; `caught_by` is who caught it. A defect in the change found by the tester, reviewer, human or CI is `stage: implement`. A missing or wrong acceptance criterion or verifier, a wrong plan or a bad brief is `stage: plan` (`caught_by: self` if you noticed it yourself). `stage: test` / `stage: review` only for mistakes the tester or reviewer made themselves.
+- `stage` is where the mistake was made, never who caught it; `caught_by` is who caught it. A defect in the change found by the tester, reviewer, human or CI is `stage: implement`. A missing or wrong acceptance criterion or verifier, a wrong plan or a bad brief is `stage: plan`. `caught_by: self` only when the stage that made the mistake caught it later (you, for your own plan); a plan or contract gap an implementer reports is `caught_by: implementer`, and an agent's mistake you catch (a deviation, a misreported result) is `caught_by: lead`. `stage: test` / `stage: review` only for mistakes the tester or reviewer made themselves.
 - Reuse an existing category from step 1 when one fits. Invent a new kebab-case category only when none does; name the kind of mistake, not the incident (`missing-input-validation`, not `null-in-parse-config`).
 - `outcome`: `completed` when the run finished, `in-progress` only if it stopped part-way, unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.
 - Never put secrets, tokens, private hostnames or personal data in a record.

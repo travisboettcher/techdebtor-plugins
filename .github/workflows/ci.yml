@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # edited: GitHub retargets a stacked PR's base to the default branch once
+    # the PR below it merges, and the version check's changelog rule depends
+    # on the base.
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: agent-loop tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.15"]  # declared minimum, latest stable
+    defaults:
+      run:
+        working-directory: plugins/agent-loop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install pytest==9.2.0
+      - run: python -m pytest -q
+
+  manifests:
+    name: plugin manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate .
+      - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate plugins/agent-loop
+
+  version-bump:
+    name: plugin version bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read  # to read the pull request's real base branch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the default branch and the merge base
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+      - run: python -m pip install pytest==9.2.0
+      - run: python -m pytest -q .github/scripts/tests
+      # In a GitHub stack, github.base_ref is the stack's trunk for every pull
+      # request in it, so ask the API for the branch this one really targets.
+      - name: Find the pull request's base branch
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [ -n "$PR_NUMBER" ]; then
+            base="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref)"
+          fi
+          printf 'ref=%s\n' "$base" >> "$GITHUB_OUTPUT"
+      - name: Changed plugins carry a version bump and changelog entry
+        env:
+          BASE_REF: ${{ steps.base.outputs.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python .github/scripts/version_check.py --default-branch "$DEFAULT_BRANCH" --base-ref "$BASE_REF"

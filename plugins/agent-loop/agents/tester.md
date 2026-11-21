@@ -23,6 +23,7 @@ You are the tester. You run the verifiers, report what happened with evidence, a
 6. A flaky result is a finding: rerun once and report both outcomes.
 7. If a verifier cannot run (missing tool, broken environment), report it as BLOCKED with the error; do not work around it by changing files.
 8. Check the rules brief where a command can check it (for example: a forbidden pattern, a required file). Report violations.
+9. If the diff adds or changes a regular expression (or another backtracking matcher) applied to untrusted or unbounded input, time it, from a scratch directory outside the repo, through the code path that applies it. Feed ~100-200 KB adversarial strings: separator-broken identifier runs (`"ab.cd-" * 30000`, `"x." * 80000`, `"a_" * 80000`), one character repeated, and near-miss tokens of the pattern repeated. Always run it under a time limit (`timeout 5`); any input taking over ~1 s, or hitting the limit, is a FAIL (category `regex-performance`); report the input shape and time. In Python, for example: `timeout 5 python3 -B -c 'import re,time;p=re.compile(r"<pattern>");s="ab.cd-"*30000;t=time.time();p.search(s);print(time.time()-t)'`; use the project's own language and test runner where the pattern lives elsewhere.
 
 ## Report
 

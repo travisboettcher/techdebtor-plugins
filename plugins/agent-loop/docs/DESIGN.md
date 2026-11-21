@@ -51,7 +51,7 @@ findings:                     # anything a later stage (or the human) had to cat
     category: generated-file-hand-edit   # kebab-case; reuse existing categories (see ledger) before inventing one
     severity: major           # minor | major | critical
     detail: "Edited the generated compose file instead of its source."
-    caught_by: reviewer       # which stage noticed: tester | reviewer | human | ci | hook | self
+    caught_by: reviewer       # who noticed: tester | reviewer | implementer | lead | human | ci | hook | self
     fixed: true
 rejected:                     # optional: findings a stage reported that turned out to be wrong
   - stage: review             # here: the stage that reported the wrong finding
@@ -63,7 +63,7 @@ notes: "Free text, optional."
 Rules:
 - `category` is the unit of measurement. Prefer an existing category from the ledger or earlier records; a new one is fine when nothing fits.
 - A finding is something that went wrong and was caught by a *later* stage, the human, CI or a hook, not a summary of the work. Mistakes an agent catches in its own work before reporting are not findings.
-- `stage` is where the mistake was made, never who noticed it; `caught_by` is who noticed. A defect the tester or reviewer finds in the implementation is `stage: implement` with `caught_by: tester` or `caught_by: reviewer`. A missing or wrong acceptance criterion or verifier, a wrong plan or a bad brief (the lead's own mistakes) is `stage: plan`. `stage: test` and `stage: review` are only for mistakes the tester or reviewer made themselves (a check skipped, a failure misreported) that someone else caught later. `caught_by: self` means the stage that made the mistake noticed it later in the run.
+- `stage` is where the mistake was made, never who noticed it; `caught_by` is who noticed. A defect the tester or reviewer finds in the implementation is `stage: implement` with `caught_by: tester` or `caught_by: reviewer`. A missing or wrong acceptance criterion or verifier, a wrong plan or a bad brief (the lead's own mistakes) is `stage: plan`. `stage: test` and `stage: review` are only for mistakes the tester or reviewer made themselves (a check skipped, a failure misreported) that someone else caught later. `caught_by: self` means the stage that made the mistake noticed it later in the run. A defect noticed by a different stage keeps the `stage` where it was made and has `caught_by` set to the stage that noticed it: `implementer` when an implementer finds a gap in the plan or contract it was given, `lead` when the lead catches an implementer's, tester's or reviewer's mistake (a deviation, a misreported result).
 - `outcome` is `completed` when the run finished and is waiting on the human, and `in-progress` only when it stopped part-way. The human's decision (`merged`, `reworked`, `abandoned`) replaces it when known.
 - `rejected` records false positives, so a retro can measure how often a stage (usually the reviewer) is wrong; a stage that is often wrong is itself a candidate for a rule.
 - Never put secrets, tokens, hostnames of private systems, or personal data in a record.
