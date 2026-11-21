@@ -21,7 +21,7 @@ Arguments given: `$ARGUMENTS`
 ## Guardrails (apply throughout)
 
 - **Read-only.** Write nothing into the audited repository: no files, no branches, no commits, no config changes, no installs. The only write is the scanner's output file in the system temp directory. Offering scaffolding (a CLAUDE.md draft, a CI job) is fine; writing it is a separate task the human asks for.
-- **The permission prompts are the human gate.** This skill pre-approves only reading files and one exact read-only git command (`git rev-parse --show-toplevel`, which finds the current repository). Everything else asks: the scanner run (a pattern for it would also match a same-named script planted in a cloned repo), every `git -C "<ROOT>"` command (it names the audited repo, so it cannot be an exact pre-approval), every project command, and every `gh` call. Do not try to avoid those prompts with other tools, scripts or shell tricks.
+- **The permission prompts are the human gate.** This skill pre-approves only reading files and one exact read-only git command (`git rev-parse --show-toplevel`, which finds the current repository). Everything else asks: the scanner run (a pattern for it would also match a same-named script planted in a cloned repo), every `git -C "<ROOT>"` command (it names the audited repo, so it cannot be an exact pre-approval), every project command, and every `gh` call. Do not get around those prompts with other tools, scripts or shell tricks.
 - **Running project commands executes the project's code.** Before each one, say what it is, that it runs the project's code, and roughly how long it should take. Cheap by default: never run mutation testing, fuzzing campaigns, container-based or full end-to-end suites unless the human opts in, and never run heavy jobs in parallel; one at a time, with the runner's own worker limit set low.
 - **Read only what the scanner cited.** Read follows symlinks, and a hostile repo can plant `CLAUDE.md -> ~/.aws/credentials`. So read only paths inside `<ROOT>` that the scanner's output cites as evidence (they are regular files it listed, or symlinks it checked resolve to regular files inside `<ROOT>`). Never Read a path listed in `scan.skipped` (`symlinks`, `special`, `too_large`, `unreadable`, `dirs`), never a path outside `<ROOT>`, and never a path that only Glob or Grep turned up. Use Glob and Grep inside `<ROOT>` only to locate lines in cited files.
 - **Evidence or "unknown".** Every answer cites a file and line, a CI job, a protection rule, or a command and its output. Where evidence is missing, say `unknown` and how to settle it. Never guess, and never count `unknown` as met.
@@ -56,7 +56,7 @@ Heavy measurements (a mutation run, a fuzzing campaign, a container suite) are l
 
 ### 3. Judge
 
-For every layer in the rubric, answer the four questions (exists, in CI, blocks merge, measured) with `yes`, `partial`, `no`, `unknown` or `n/a`, citing evidence for each, and apply the rubric's weak and strong evidence: a config file alone is weak; a job that only runs on pushes to the default branch is not "in CI" for pull requests; a soft-fail job does not block merge; a job without a required-check rule is at most `partial` for "blocks merge". Mark layers that cannot apply (`smoke` for a library, `contract` for a single component) `n/a` with the reason.
+For every layer in the rubric, answer the four questions (exists, in CI, blocks merge, measured) with `yes`, `partial`, `no`, `unknown` or `n/a`, citing evidence for each. Apply the rubric's weak and strong evidence: a config file alone is weak; a job that only runs on pushes to the default branch is not "in CI" for pull requests; a soft-fail job does not block merge; a job without a required-check rule is at most `partial` for "blocks merge". Mark layers that cannot apply (`smoke` for a library, `contract` for a single component) `n/a` with the reason.
 
 Fill the CI capability table from `ci.capabilities`, confirming each cited line. An empty capability means "not used here"; say whether the CI system supports it (the rubric's table).
 
@@ -92,6 +92,6 @@ Measured: <suite time, flakiness, anything else run, or "nothing run">.
 - <heavy measurement> - <command>
 ```
 
-With `--json`, end with the fenced `json` block in the shape the rubric defines, consistent with the tables above.
-
 After the report, offer to save it (Markdown, and the JSON if asked) to a path the human chooses. Write only after an explicit yes and only to that path; suggest a path outside the audited repo unless the human names one inside it.
+
+With `--json`, add the fenced `json` block in the shape the rubric defines, consistent with the tables above, after that offer: one block, the last thing in your message, with nothing after it, so a tool can take it from the end.

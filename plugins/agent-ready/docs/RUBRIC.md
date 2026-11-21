@@ -183,7 +183,7 @@ Shape of every new check: opt-in locally and report-only in CI at first (`soft_f
 
 ## Machine-readable output (`--json`)
 
-With `--json`, the report ends with one fenced `json` block of this shape, for tools such as `agent-loop` to choose specialists from. Every `evidence` entry is a `path:line`, a CI job (`path#job`), or a command and its result.
+With `--json`, the message ends with one fenced `json` block of this shape, with nothing after it, for tools such as `agent-loop` to choose specialists from. Every `evidence` entry is a `path:line`, a CI job (`path#job`), or a command and its result.
 
 ```json
 {

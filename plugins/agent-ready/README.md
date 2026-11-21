@@ -31,7 +31,7 @@ The rubric is [`docs/RUBRIC.md`](docs/RUBRIC.md).
 /agent-ready:audit --json             # also end with the machine-readable block
 ```
 
-The report has a summary (step and bottleneck), a layer table, a CI capability table (fan-in, artifact passing, soft fail, annotations, path filters, per-job env, diff base, dynamic pipelines), prioritised fixes, unknowns, and the heavy measurements it did not run. At the end it offers to save the report to a path you choose.
+The report has a summary (step and bottleneck), a layer table, a CI capability table (fan-in, artifact passing, soft fail, annotations, path filters, per-job env, diff base, dynamic pipelines), prioritised fixes, unknowns, and the heavy measurements it did not run. It then offers to save the report to a path you choose; with `--json`, the JSON block comes last, after that offer.
 
 ## What it reads, and what it never does
 

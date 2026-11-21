@@ -102,3 +102,10 @@ def test_skill_queries_the_audited_repo_not_the_cwd():
 def test_skill_reads_only_cited_regular_files():
     assert "scan.skipped" in SKILL
     assert "Never Read a path listed in `scan.skipped`" in SKILL
+
+
+def test_the_json_block_comes_last():
+    # Tools take the machine-readable block from the end of the message, so nothing may follow it:
+    # the offer to save the report comes before it.
+    assert SKILL.index("offer to save it") < SKILL.index("the last thing in your message")
+    assert "with nothing after it" in RUBRIC
