@@ -176,3 +176,113 @@ def test_glued_and_prefixed_secrets_are_redacted(text, secret):
     assert secret not in out, out
     assert "[REDACTED" in out
     assert redact(out) == out
+
+
+# --- Fix round 3: linear-time redaction, -u/quoted leaks, keyword over-redaction.
+
+import time
+
+from retro_mine import REDACT_MAX, _redact_all
+
+_N = 200_000
+ADVERSARIAL = {
+    "dot-dash": "ab.cd-" * (_N // 6),
+    "x-dot": "x." * (_N // 2),
+    "a-underscore": "a_" * (_N // 2),
+    "digit-dot": "1." * (_N // 2),
+    "ip-ish": "1.1.1." * (_N // 6),
+    "base64-ish": "aB3+/" * (_N // 5),
+    "base64-run": "aB3" * (_N // 3) + "!",
+    "equals": "=" * _N,
+    "colons": ":" * _N,
+    "a-colon": "a:" * (_N // 2),
+    "kv-chain": "a=" * (_N // 2),
+    "key-chain": "key=" * (_N // 4),
+    "jwt-ish": "eyJaaaaa." * (_N // 9),
+    "email-ish": "a%" * (_N // 2),
+    "email-domain": "a@" + "b." * (_N // 2),
+    "mysql-words": "mysql " * (_N // 6),
+    "url-ish": "x://" + "b:" * (_N // 2),
+    "spaces": "a" + " " * _N,
+}
+
+
+@pytest.mark.parametrize("name", sorted(ADVERSARIAL))
+def test_redaction_is_linear_on_adversarial_input(name):
+    text = ADVERSARIAL[name]
+    start = time.perf_counter()
+    _redact_all(text)  # uncapped: proves every pattern itself is linear
+    assert time.perf_counter() - start < 1.0, name
+
+
+def test_summarize_tool_on_long_identifier_run_is_fast():
+    from retro_mine import summarize_tool
+    start = time.perf_counter()
+    summarize_tool({"name": "Bash", "input": {"command": "echo " + "ab.cd-" * 6666}})
+    assert time.perf_counter() - start < 1.0
+
+
+def test_redact_caps_its_input():
+    out = redact("word " * (REDACT_MAX // 2))
+    assert len(out) <= REDACT_MAX + 20
+
+
+def test_cap_without_whitespace_drops_the_cut_token():
+    out = redact("a," * ((REDACT_MAX - 10) // 2) + GH)
+    assert "ghp_" not in out and "A1b2" not in out
+
+
+def test_cap_never_leaves_a_fragment_of_a_cut_secret():
+    pad = "x " * ((REDACT_MAX - 10) // 2)
+    for tail in (GH, "API_KEY=" + "s3cretvalue" * 3, "--password 'hunter2 hunter2 hunter2'"):
+        out = redact(pad + tail)
+        assert "A1b2C3" not in out and "s3cret" not in out and "hunter2" not in out, tail
+
+
+@pytest.mark.parametrize("text,secret", [
+    ("curl -ualice:s3cret x", "s3cret"),
+    ("curl -u 'alice:s3cr et' x", "et"),
+    ('curl -u "alice:s3cr et" x', "et"),
+    ("curl --user='alice:s3cr et' x", "et"),
+    ("tool --password 's3cr et' x", "et"),
+    ('tool --token="s3cr et" x', "et"),
+    ("tool --password 's3cr et", "et"),
+    ("API_KEY='s3cr et", "et"),
+])
+def test_glued_and_quoted_command_line_credentials_are_redacted(text, secret):
+    out = redact(text)
+    assert "s3cr" not in out and " " + secret not in out, out
+    assert "[REDACTED" in out
+
+
+@pytest.mark.parametrize("text", [
+    "monkey: banana",
+    "The keyboard: broken",
+    "Hotkey: ctrl+k",
+    "turkey=1",
+    "keyring: gnome",
+    "tokenizer: bpe",
+])
+def test_keyword_inside_a_word_is_left_alone(text):
+    assert redact(text) == text
+
+
+@pytest.mark.parametrize("line,value", [
+    ("apiKey: abc123", "abc123"),
+    ("api-key: abc123", "abc123"),
+    ("secret_key=abc123", "abc123"),
+    ("x-api-key: abc123", "abc123"),
+    ("GITHUBTOKEN=abc123", "abc123"),
+    ("sessionId=abc123", "abc123"),
+    ("session_id: abc123", "abc123"),
+    ("passwords=abc123", "abc123"),
+    ('{"token":"abc123"}', "abc123"),
+    ("docker run --env=API_KEY=abc123", "abc123"),
+    ("foo=token=abc123", "abc123"),
+    ("key: abc123", "abc123"),
+])
+def test_keyword_components_are_still_redacted(line, value):
+    out = redact(line)
+    assert value not in out, out
+    assert "[REDACTED" in out
+    assert redact(out) == out

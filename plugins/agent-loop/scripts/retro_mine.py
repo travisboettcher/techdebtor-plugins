@@ -47,12 +47,41 @@ ACTION_MAX = 200
 # Redaction
 # ---------------------------------------------------------------------------
 
-_KEYWORDS = r"(?:api[_-]?key|access[_-]?key|private[_-]?key|key|token|secret|passw(?:or)?d|passwd|pwd|passphrase|credentials?|cookie|session[_-]?id)"
+# Secret-ish names, matched against the components of a NAME in NAME=value /
+# NAME: value (split on "_", "-", "." and camelCase), never against arbitrary
+# substrings, so "monkey: banana" and "keyboard:" survive. Stems that are not
+# the tail of ordinary words also count at the end of a component (GITHUBTOKEN).
+_KEY_WORDS = frozenset({"key", "token", "secret", "password", "passwd", "pwd", "passphrase", "credential",
+                        "cookie", "apikey", "accesskey", "privatekey", "secretkey", "sessionid"})
+_KEY_STEMS = ("token", "secret", "password", "passwd", "passphrase", "credential", "cookie",
+              "apikey", "accesskey", "privatekey", "secretkey", "sessionid")
+_CAMEL = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+
+
+def _is_secret_name(name: str) -> bool:
+    parts = []
+    for comp in re.split(r"[_.-]+", name):
+        if comp:
+            parts.append(comp.lower())
+            parts.extend(p.lower() for p in _CAMEL.findall(comp))
+    for i, p in enumerate(parts):
+        w = p[:-1] if p.endswith("s") and len(p) > 3 else p
+        if w in _KEY_WORDS or p in _KEY_WORDS or w.endswith(_KEY_STEMS):
+            return True
+        if p == "session" and i + 1 < len(parts) and parts[i + 1] == "id":
+            return True
+    return False
+
 
 # Token boundary: "_", "-" and other punctuation count as a boundary, unlike
 # \b, so a secret glued to an identifier (host_10.0.0.5, x_ghp_...) is still
 # found. Only a letter or digit directly before the match blocks it.
 _B = r"(?<![A-Za-z0-9])"
+
+# Every pattern below must stay linear in the input: a pattern may only start a
+# variable-length scan where no earlier start could have scanned the same text
+# (a lookbehind that pins it to the start of a run, or a literal anchor), and
+# no lazy ".*?" may run to the end of a line from many starts.
 
 
 def _mixed(prefix_len: int):
@@ -78,50 +107,110 @@ def _user_cred(m: re.Match) -> str:
     return m.group(1) + "[REDACTED:cred]"
 
 
-_VALUE = r"(\"[^\"\n]*\"|'[^'\n]*'|[^\s'\",;&]+)"
+# A quoted value runs to its closing quote, or to the end of the line when the
+# quote is never closed (so a value cut short cannot leak its tail).
+_DQ = r"\"[^\"\n]*(?:\"|(?=\n)|\Z)"
+_SQ = r"'[^'\n]*(?:'|(?=\n)|\Z)"
+_VALUE = r"(" + _DQ + "|" + _SQ + r"|[^\s'\",;&]+)"
+_VALUE_RX = re.compile(_VALUE)
 
-_REDACTIONS: list[tuple[re.Pattern, object]] = [
+# NAME=value, password: value, "token": "value" ... The name starts only at
+# the start of an identifier run, so a long run is scanned once.
+_KV_RX = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)([\"']?\s*[=:]\s*)")
+
+
+def _key_values(text: str) -> str:
+    """Redact the value of every assignment whose name has a secret-ish
+    component (value redacted, name kept). A non-secret name does not consume
+    its value, so --env=API_KEY=x still finds API_KEY."""
+    out, pos, done = [], 0, 0
+    while (m := _KV_RX.search(text, pos)) is not None:
+        pos = m.end()
+        if not _is_secret_name(m.group(1)):
+            continue
+        v = _VALUE_RX.match(text, pos)
+        if v is None:
+            continue
+        if not v.group(0).startswith("[REDACTED"):
+            out += [text[done:pos], "[REDACTED:secret]"]
+            done = v.end()
+        pos = v.end()
+    out.append(text[done:])
+    return "".join(out)
+
+
+# mysql -pVALUE / sshpass -p VALUE: a -p counts only after one of these
+# commands in the same shell segment (not in "mkdir -p").
+_DB_SCAN = re.compile(r"(?P<cmd>\b(?:mysql|mysqldump|mysqladmin|mariadb|mariadb-dump|sshpass)\b)"
+                      r"|(?P<pw>\s-p\s*)|(?P<delim>[\n|;&])")
+
+
+def _db_passwords(text: str) -> str:
+    out, pos, done, active = [], 0, 0, False
+    while (m := _DB_SCAN.search(text, pos)) is not None:
+        pos = m.end()
+        if m.group("cmd"):
+            active = True
+        elif m.group("delim"):
+            active = False
+        elif active:
+            v = _VALUE_RX.match(text, pos)
+            if v is None:
+                continue
+            if not v.group(0).startswith("[REDACTED"):
+                out += [text[done:pos], "[REDACTED:secret]"]
+                done = v.end()
+            pos = v.end()
+    out.append(text[done:])
+    return "".join(out)
+
+
+def _sub(pattern: str, repl, flags: int = 0):
+    rx = re.compile(pattern, flags)
+    return lambda text: rx.sub(repl, text)
+
+
+_REDACTIONS = [
     # PEM private key blocks (also a block cut off before its END line).
-    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:.*?-----END [A-Z0-9 ]*PRIVATE KEY-----|.*\Z)", re.S),
-     "[REDACTED:private-key]"),
+    _sub(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:.*?-----END [A-Z0-9 ]*PRIVATE KEY-----|.*\Z)",
+         "[REDACTED:private-key]", re.S),
     # Home directories: keep the path shape, drop the user name.
-    (re.compile(r"(?<![\w/])/(?:home|Users)/[^/\s'\"]+(?=/|\b)"), "~"),
-    # Credentials embedded in URLs.
-    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1[REDACTED:cred]@"),
+    _sub(r"(?<![\w/])/(?:home|Users)/[^/\s'\"]+(?=/|\b)", "~"),
+    # Credentials embedded in URLs (anchored on "://", the scheme is left alone).
+    _sub(r"(?<=[a-zA-Z0-9+.-])://[^/\s:@]+:[^/\s@]+@", "://[REDACTED:cred]@"),
     # Authorization headers, any scheme.
-    (re.compile(r"(?i)\b((?:proxy-)?authorization[\"']?\s*[:=]\s*[\"']?)(?:(?:bearer|basic|token|digest)\s+)?[^\s'\",;]+"),
-     r"\1[REDACTED:auth]"),
-    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{6,}"), "Bearer [REDACTED:auth]"),
+    _sub(r"(?i)\b((?:proxy-)?authorization[\"']?\s*[:=]\s*[\"']?)(?:(?:bearer|basic|token|digest)\s+)?[^\s'\",;]+",
+         r"\1[REDACTED:auth]"),
+    _sub(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{6,}", "Bearer [REDACTED:auth]"),
     # Known token shapes.
-    (re.compile(_B + r"github_pat_[A-Za-z0-9_]{20,}"), "[REDACTED:token]"),
-    (re.compile(_B + r"gh[pousr]_[A-Za-z0-9]{16,}"), "[REDACTED:token]"),
-    (re.compile(_B + r"sk-[A-Za-z0-9_-]{16,}"), "[REDACTED:token]"),
-    (re.compile(_B + r"xox[a-z]-[A-Za-z0-9-]{10,}"), "[REDACTED:token]"),
-    (re.compile(_B + r"gl(?:pat|ptt|dt|rt|cbt|soat|ft)-[A-Za-z0-9_-]{16,}"), "[REDACTED:token]"),
-    (re.compile(_B + r"npm_[A-Za-z0-9]{16,}"), _mixed(4)),
-    (re.compile(_B + r"pypi-[A-Za-z0-9_-]{16,}"), _mixed(5)),
-    (re.compile(_B + r"hf_[A-Za-z0-9]{16,}"), _mixed(3)),
-    (re.compile(_B + r"(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])"), "[REDACTED:token]"),
-    (re.compile(_B + r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}"), "[REDACTED:jwt]"),
-    # Command-line credentials: curl -u user:pass, --password VALUE, mysql -pVALUE.
-    (re.compile(r"(?<!\S)((?:-u|--user)(?:\s+|=))(['\"]?[^\s:'\"]+:[^\s'\"]+['\"]?)"), _user_cred),
-    (re.compile(r"(?i)(?<!\S)(--(?:password|passwd|pass|token|secret|api-key|apikey|access-token|auth-token)"
-                r"(?:\s+|=))" + _VALUE), _keep_redacted(1, 2)),
-    (re.compile(r"\b((?:mysql|mysqldump|mysqladmin|mariadb|mariadb-dump|sshpass)\b[^\n|;&]*?\s-p\s*)" + _VALUE),
-     _keep_redacted(1, 2)),
-    # NAME_KEY=value, password: value, "token": "value" ... (value redacted, name kept).
-    (re.compile(r"(?i)(\b[A-Za-z0-9_.-]*" + _KEYWORDS + r"[A-Za-z0-9_]*[\"']?\s*[=:]\s*)" + _VALUE),
-     _keep_redacted(1, 2)),
+    _sub(_B + r"github_pat_[A-Za-z0-9_]{20,}", "[REDACTED:token]"),
+    _sub(_B + r"gh[pousr]_[A-Za-z0-9]{16,}", "[REDACTED:token]"),
+    _sub(_B + r"sk-[A-Za-z0-9_-]{16,}", "[REDACTED:token]"),
+    _sub(_B + r"xox[a-z]-[A-Za-z0-9-]{10,}", "[REDACTED:token]"),
+    _sub(_B + r"gl(?:pat|ptt|dt|rt|cbt|soat|ft)-[A-Za-z0-9_-]{16,}", "[REDACTED:token]"),
+    _sub(_B + r"npm_[A-Za-z0-9]{16,}", _mixed(4)),
+    _sub(_B + r"pypi-[A-Za-z0-9_-]{16,}", _mixed(5)),
+    _sub(_B + r"hf_[A-Za-z0-9]{16,}", _mixed(3)),
+    _sub(_B + r"(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])", "[REDACTED:token]"),
+    _sub(_B + r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}", "[REDACTED:jwt]"),
+    # Command-line credentials: curl -u user:pass (also -uuser:pass and quoted),
+    # --password VALUE, mysql -pVALUE.
+    _sub(r"(?<!\S)((?:-u|--user)(?:\s+|=)|-u)"
+         r"(\"[^\"\n:]*:[^\"\n]*(?:\"|(?=\n)|\Z)|'[^'\n:]*:[^'\n]*(?:'|(?=\n)|\Z)|[^\s:'\"]+:[^\s'\"]+)",
+         _user_cred),
+    _sub(r"(?i)(?<!\S)(--(?:password|passwd|pass|token|secret|api-key|apikey|access-token|auth-token)"
+         r"(?:\s+|=))" + _VALUE, _keep_redacted(1, 2)),
+    _db_passwords,
+    _key_values,
     # Short password names, as whole words only (pw: x, pass = x).
-    (re.compile(r"(?i)(" + _B + r"(?:pw|pass)[\"']?\s*[=:]\s*)" + _VALUE), _keep_redacted(1, 2)),
-    # Emails.
-    (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "[REDACTED:email]"),
+    _sub(r"(?i)(" + _B + r"(?:pw|pass)[\"']?\s*[=:]\s*)" + _VALUE, _keep_redacted(1, 2)),
+    # Emails (the local part starts only at the start of its run).
+    _sub(r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "[REDACTED:email]"),
     # IPv4 addresses, private or not (with optional CIDR / port), also glued to "_".
-    (re.compile(r"(?<![0-9.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)"
-                r"(?:/\d{1,2})?(?::\d{1,5})?(?![0-9])"),
-     "[REDACTED:ip]"),
+    _sub(r"(?<![0-9.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)"
+         r"(?:/\d{1,2})?(?::\d{1,5})?(?![0-9])", "[REDACTED:ip]"),
     # Long hex runs (keys, hashes).
-    (re.compile(_B + r"[0-9a-fA-F]{32,}(?![A-Za-z0-9])"), "[REDACTED:hex]"),
+    _sub(_B + r"[0-9a-fA-F]{32,}(?![A-Za-z0-9])", "[REDACTED:hex]"),
 ]
 
 def _user_pattern(name: str | None) -> re.Pattern | None:
@@ -144,12 +233,28 @@ def _b64_sub(m: re.Match) -> str:
     return s
 
 
+REDACT_MAX = 64 * 1024
+
+
 def redact(text: str | None) -> str:
-    """Replace anything secret-shaped in ``text``. When in doubt, redact."""
+    """Replace anything secret-shaped in ``text``. When in doubt, redact.
+
+    Text past ``REDACT_MAX`` is dropped *before* redacting, back to the last
+    whitespace or separator, so a token cut at the limit is dropped whole rather than left
+    as a fragment too short to recognise (an unclosed quote is redacted to the
+    end of its line anyway)."""
     if not text:
         return ""
-    for pattern, repl in _REDACTIONS:
-        text = pattern.sub(repl, text)
+    if len(text) > REDACT_MAX:
+        text = text[:REDACT_MAX]
+        cut = max(text.rfind(c) for c in " \n\t,;&|")
+        text = (text[:cut] if cut > 0 else "") + " [truncated]"
+    return _redact_all(text)
+
+
+def _redact_all(text: str) -> str:
+    for step in _REDACTIONS:
+        text = step(text)
     if _LOCAL_USER is not None:
         text = _LOCAL_USER.sub("[user]", text)
     return _B64_RUN.sub(_b64_sub, text)
