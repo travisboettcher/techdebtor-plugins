@@ -1,5 +1,5 @@
 ---
 type: regex
-match: not_contains
+match: contains
 ---
-"blocks_merge":\s*\{\s*"answer":\s*"yes"
+^(?![\s\S]*(?:"blocks_merge":\s*\{\s*"answer":\s*"yes"))[\s\S]*```json[ \t]*\n

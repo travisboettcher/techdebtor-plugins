@@ -1,5 +1,5 @@
 ---
 type: regex
-match: not_contains
+match: contains
 ---
-"gate":\s*"(?!(0->1|1->2|2->3|3->4)")[^"]*"
+^(?![\s\S]*(?:"gate":\s*"(?!(?:0->1|1->2|2->3|3->4)")[^"]*"))[\s\S]*```json[ \t]*\n

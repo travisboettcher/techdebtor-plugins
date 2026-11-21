@@ -1,5 +1,5 @@
 ---
 type: regex
-match: not_contains
+match: contains
 ---
-"answer":\s*"(?!(yes|partial|no|unknown|n/a)")[^"]*"
+^(?![\s\S]*(?:"answer":\s*"(?!(?:yes|partial|no|unknown|n/a)")[^"]*"))[\s\S]*```json[ \t]*\n

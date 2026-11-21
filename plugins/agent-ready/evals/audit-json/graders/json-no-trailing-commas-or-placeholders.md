@@ -1,5 +1,5 @@
 ---
 type: regex
-match: not_contains
+match: contains
 ---
-,\s*\n\s*[}\]]|"\.\.\."|"<[a-z ]+>"
+^(?![\s\S]*(?:,\s*\n\s*[}\]]|"\.\.\."|"<[a-z ]+>"))[\s\S]*```json[ \t]*\n
