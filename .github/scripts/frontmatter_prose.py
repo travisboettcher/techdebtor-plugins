@@ -4,7 +4,7 @@
 Vale never lints YAML front matter, but `description` (and `argument-hint`) in a
 skill's, agent's or command's front matter is model-facing text loaded into
 every session. This script copies those values into Markdown files that Vale
-lints with the Prompt style, then maps Vale's alerts back to the source.
+lints with the model-facing rules, then maps Vale's alerts back to the source.
 
   frontmatter_prose.py extract [--root .] --out DIR
       Writes DIR/<source dir>/<stem>.<key>.md for each value of

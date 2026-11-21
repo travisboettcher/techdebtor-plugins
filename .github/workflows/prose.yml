@@ -18,7 +18,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.15"
       - run: python -m pip install pytest==9.2.0
       - run: python -m pytest -q -p no:cacheprovider .github/scripts/tests
 
@@ -43,11 +43,15 @@ jobs:
           echo "${VALE_SHA256}  $dir/vale.tar.gz" | sha256sum -c -
           tar -xzf "$dir/vale.tar.gz" -C "$dir" vale
           echo "$dir" >> "$GITHUB_PATH"
+      - name: Install the Vale packages
+        # Prompts, Voices, Std and proselint: each a versioned release zip, checked against the sha256
+        # pinned in .github/vale/packages.json before it is unpacked into the StylesPath.
+        run: python3 .github/scripts/vale_packages.py
       - name: Run Vale
         # Relative paths from the repository root: .vale.ini's globs pick each file's style by path.
         # One Vale run per file set (no xargs, which could split a run into several JSON documents).
         # Front matter is never linted, so description and argument-hint values of skills, agents
-        # and commands are copied out by frontmatter_prose.py, linted with the Prompt style there,
+        # and commands are copied out by frontmatter_prose.py, linted with the model-facing rules there,
         # and mapped back to their source lines.
         run: |
           set -uo pipefail

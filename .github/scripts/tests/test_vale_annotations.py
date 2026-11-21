@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import vale_annotations as va  # noqa: E402
 
 
-def alert(check="Prompt.Hedging", severity="warning", line=3, span=(5, 10), message="Drop the hedge 'try to'."):
+def alert(check="Direct.Hedging", severity="warning", line=3, span=(5, 10), message="Drop the hedge 'try to'."):
     return {"Check": check, "Severity": severity, "Line": line, "Span": list(span), "Message": message,
             "Match": "try to", "Link": "", "Description": "", "Action": {"Name": "", "Params": None}}
 
@@ -27,7 +27,7 @@ def run(data, tmp_path, capsys, as_text=None):
 def test_warnings_become_warning_annotations_and_pass(tmp_path, capsys):
     code, out = run({"README.md": [alert()]}, tmp_path, capsys)
     assert code == 0
-    assert "::warning file=README.md,line=3,col=5,title=Prompt.Hedging::Drop the hedge 'try to'." in out.splitlines()
+    assert "::warning file=README.md,line=3,col=5,title=Direct.Hedging::Drop the hedge 'try to'." in out.splitlines()
 
 
 def test_an_error_fails_and_suggestions_are_notices(tmp_path, capsys):

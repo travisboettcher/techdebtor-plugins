@@ -1,9 +1,0 @@
-# Filler that is never needed in an instruction.
-extends: existence
-message: "Drop the filler '%s'."
-level: error
-ignorecase: true
-tokens:
-  - simply
-  - basically
-  - in order to

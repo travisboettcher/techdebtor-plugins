@@ -106,12 +106,12 @@ def test_remap_points_alerts_at_the_source_line_and_column(repo, tmp_path, capsy
     fp.main(["extract", "--root", str(repo), "--out", str(out)])
     vale = tmp_path / "fm.json"
     vale.write_text(json.dumps({"plugins/p/skills/s/SKILL.description.md": [
-        {"Check": "Prompt.Politeness", "Severity": "error", "Line": 1, "Span": [1, 5], "Message": "m"}]}))
+        {"Check": "Prompts.Imperative", "Severity": "error", "Line": 1, "Span": [1, 5], "Message": "m"}]}))
     capsys.readouterr()
     assert fp.main(["remap", "--out", str(out), str(vale)]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result == {"plugins/p/skills/s/SKILL.md": [
-        {"Check": "Prompt.Politeness", "Severity": "error", "Line": 3, "Span": [15, 19], "Message": "m"}]}
+        {"Check": "Prompts.Imperative", "Severity": "error", "Line": 3, "Span": [15, 19], "Message": "m"}]}
 
 
 def test_remap_passes_a_vale_error_through(tmp_path, capsys):

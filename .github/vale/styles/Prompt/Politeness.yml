@@ -1,8 +1,0 @@
-# Politeness adds tokens and no instruction.
-extends: existence
-message: "Drop '%s': state the instruction directly."
-level: error
-ignorecase: true
-tokens:
-  - please
-  - kindly
