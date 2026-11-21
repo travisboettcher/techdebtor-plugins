@@ -1,0 +1,6 @@
+schema_version: "1.0"
+name: audit-report
+context:
+  scaffold_script: scaffold.sh
+execution:
+  append_system_prompt: "Nobody can answer questions during this session. Where a procedure says to ask the human for permission, take the answer as no, skip that step, and carry on to the end."

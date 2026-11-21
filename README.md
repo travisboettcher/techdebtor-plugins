@@ -10,6 +10,7 @@ Claude Code plugins from [techdebtor.io](https://techdebtor.io).
 | Plugin | What it does |
 |---|---|
 | [`agent-loop`](plugins/agent-loop) | An agent graph that improves itself: `/agent-loop:lead` runs test-writer and implementer agents, then verification and review specialists chosen per change, and records what each caught; `/agent-loop:retro` turns recurring mistakes into rules and checks that they worked. |
+| [`agent-ready`](plugins/agent-ready) | An audit of how ready a repository is for agentic development: `/agent-ready:audit` judges tests, types, coverage, mutation, fuzzing, contracts, security, context and agent configuration on evidence (exists, in CI, blocks merge, measured), names the adoption step the repo supports and its bottleneck, and lists fixes by agent impact. Read-only. |
 
 ## Contributing
 

@@ -14,15 +14,16 @@ permissions:
 
 jobs:
   tests:
-    name: agent-loop tests (Python ${{ matrix.python }})
+    name: ${{ matrix.plugin }} tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        plugin: [agent-loop, agent-ready]
         python: ["3.11", "3.15"]  # declared minimum, latest stable
     defaults:
       run:
-        working-directory: plugins/agent-loop
+        working-directory: plugins/${{ matrix.plugin }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,6 +46,7 @@ jobs:
           node-version: "22"
       - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate .
       - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate plugins/agent-loop
+      - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate plugins/agent-ready
 
   version-bump:
     name: plugin version bump
