@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Prose: hedges and filler removed from the skills, agents and DESIGN.md, three long briefing sentences split, and `handles` and `test harness` reworded, found by the repository's new Vale rules (Prompts, Voices, proselint); meaning unchanged.
+
 ## 0.2.0 (2026-11-21)
 
 The lead gains a preflight, a plan record and test-first units; a category catalog and gates make the process measurable; verifiers apply measurement invariants; a `check` rung joins the ladder; verification and review become pools of specialists chosen by risk; and a dispatcher runs many leads at once, checks their claims and ships stacked pull requests.

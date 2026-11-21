@@ -3,3 +3,11 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .claude/runs/
+# Vale packages, installed by .github/scripts/vale_packages.py; only the repository's own styles are tracked.
+.github/vale/styles/*
+!.github/vale/styles/Repo/
+!.github/vale/styles/config/
+.github/vale/styles/config/*
+!.github/vale/styles/config/vocabularies/
+.github/vale/styles/config/vocabularies/*
+!.github/vale/styles/config/vocabularies/Repo/

@@ -75,7 +75,7 @@ Rules for the record:
 - A finding is something that went wrong and was caught. Not a summary of the work. A clean run has `findings: []`.
 - Record every finding from every stage and round: test-writer and tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief, a missed preflight check). Do not soften or omit them.
 - `stage` is where the mistake was made, never who caught it; `caught_by` is who caught it. A defect in the change found by anyone is `stage: implement`. A missing or wrong criterion or verifier, a wrong plan, a missed preflight check or a bad brief is `stage: plan`. `stage: test-write` is a wrong test. `caught_by: self` only when the stage that made the mistake caught it later (you, for your own plan); a plan or contract gap an agent reports is `caught_by` that agent (`implementer`, `test-writer`), and an agent's mistake you catch (a deviation, a misreported result, a test that cannot fail) is `caught_by: lead`. A verify skill's failure is `caught_by: check`, a hook's block `caught_by: hook`, and a finding the dispatcher's own rerun reported in a `PREPUSH_FEEDBACK` reply `caught_by: dispatcher` (DESIGN.md says why). `stage: test` / `stage: review` only for mistakes the tester or reviewer pool made itself. Findings from the coordinators carry the `specialist` their report names; add `report_only: true` where the report marks it.
-- `stages` lists every stage as it ran, and `reviewed_diff` is the fingerprint you actually took for the last review: `scripts/record_gate.py` checks both. Never add a stage that did not run or a fingerprint you did not take.
+- `stages` lists every stage as it ran, and `reviewed_diff` is the fingerprint you took for the last review: `scripts/record_gate.py` checks both. Never add a stage that did not run or a fingerprint you did not take.
 - Reuse an existing category (the catalog and the others you listed in step 1) when one fits. Invent a new kebab-case category only when none does; name the kind of mistake, not the incident (`redaction-gap`, not a name for the one token that slipped through).
 - `outcome`: `completed` when the run finished, `in-progress` only if it stopped part-way, unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.
 - Never put secrets, tokens, private hostnames or personal data in a record.
@@ -88,7 +88,7 @@ From the repo root:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/record_gate.py" check "<record path>"
 ```
 
-It reads `base`, `trunk`, `reviewed_diff`, `delegated`, `remotes` and `pushed` from the record. Add `--require-plan-approval` when step 3 required approval (`delegated: true` requires it anyway). Never edit the record just to pass the check.
+It reads `base`, `trunk`, `reviewed_diff`, `delegated`, `remotes` and `pushed` from the record. Add `--require-plan-approval` when step 3 required approval (`delegated: true` requires it anyway). Never edit the record only to pass the check.
 - **0**: pass.
 - **1**, review missing or stale: if rounds remain, review the final diff (step 6), update `stages` and `reviewed_diff`, and check again; otherwise set `outcome: in-progress`, stop and report it as not done.
 - **4**, pushed without approval (a remote ref changed since the `remotes` snapshot that `pushed` does not explain): rerunning cannot fix this. Set `outcome: in-progress`, stop and report it to the human at once.

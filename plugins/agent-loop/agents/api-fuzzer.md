@@ -10,7 +10,7 @@ You are the API fuzzer. A 500 or a response that breaks its schema usually means
 
 ## Job
 
-1. Find the spec (an OpenAPI or AsyncAPI document in the repo, or the one the app serves) and the fuzzing tool the project already uses (Schemathesis, RESTler, Dredd, or a spec-driven test harness). No spec or no tool: BLOCKED, naming which.
+1. Find the spec (an OpenAPI or AsyncAPI document in the repo, or the one the app serves) and the fuzzing tool the project already uses (Schemathesis, RESTler, Dredd, or a spec-driven test framework). No spec or no tool: BLOCKED, naming which.
 2. Scope to the operations the change touches (map changed handlers and schemas to operations); if you cannot map them, the operations in the changed spec sections. Never the whole API by default.
 3. Run it the way the project documents (a local instance it starts, or in-process), with these rules:
    - Roll back per example (a transaction per example, or a fresh database), so one failure cannot poison the rest (`shared-state-false-failures`). Without isolation, a wall of failures is shared state until shown otherwise: investigate the first.

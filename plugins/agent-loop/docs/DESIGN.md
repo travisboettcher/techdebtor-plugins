@@ -82,7 +82,7 @@ Plan approval is always required in a delegated run; the record has `delegated: 
 ### The dispatcher checks the claims
 
 Before relaying `PREPUSH_READY`, the dispatcher itself, in the lead's worktree:
-- reruns the key claims the checkpoint lists: the criteria's tests, a reproduction of each claimed bug (on the stack's top, and where the claim is that the base has the bug, in a temporary detached worktree at `<base>`), and any measurement invariant the evidence relies on;
+- reruns the key claims the checkpoint lists: the tests for the criteria, a reproduction of each claimed bug (on the stack's top, and where the claim is that the base has the bug, in a temporary detached worktree at `<base>`), and any measurement invariant the evidence relies on;
 - runs `record_gate.py check <record>` on the lead's record;
 - confirms nothing was pushed: every configured remote's refs still match both the lead's preflight snapshot (the record's `remotes`, which `record_gate.py check` compares) and its own, taken before any lead started (`record_gate.py remote-diff`). Any new, moved or deleted ref that no approved push (`pushed`) explains is `pushed-without-approval`, whatever its name, so a push under another name that was later rebased away is still caught. Other people's pushes during the run show up too; the dispatcher shows them and the human judges;
 - checks the stack's shape: each branch exactly one commit on the branch below it (the bottom on `<base>`), no merges, and each within the branch budget.
@@ -270,7 +270,7 @@ lead ──► agent-loop:tester (verification: runs things, collects evidence)
 
 | Specialist | Pool | Weight | Does |
 |---|---|---|---|
-| `test-runner` | tester | heavy | Runs the criteria's verifiers and the project's tests, build, lint and type checks against the baseline (PRE-EXISTING versus new failures). |
+| `test-runner` | tester | heavy | Runs the verifiers for the criteria and the project's tests, build, lint and type checks against the baseline (PRE-EXISTING versus new failures). |
 | `measurement-auditor` | tester | heavy | Applies the measurement invariants and run hygiene (below) to a change touching tests or measurement; reports unit and integration coverage apart. |
 | `check-runner` | tester | light | Follows the plan's verify skills on the change, read-only ("Verify skills", below). |
 | `fuzzer` | tester | heavy | Times new or changed regular expressions on adversarial input; runs the project's property and fuzz tests for the changed code. |
@@ -316,7 +316,7 @@ The default table, `docs/selection.yml` (`${CLAUDE_PLUGIN_ROOT}/docs/selection.y
 
 Every tunable default lives in that file: the `budget` and its ceiling `budget_max`, the retro's thresholds (`retro`: `drop_after_runs`, `add_after_escapes`), and each tag's specialists.
 
-**Opt-in and report-only.** New checks must not make the default run slower or fail work they were not meant to gate yet. So `api-fuzzer`, `mutation-tester`, `system-tester`, `perf-tester` and `security-scanner` are `opt_in`: a tag that selects one does not run it unless the project enables it (below). The coordinator lists it as not run, reason `opt-in`. An enabled opt-in specialist starts **report-only**: its checks and findings are marked report-only and shown to the human, but they do not start a fix round, block "done", or (for a BLOCKED check) stop the run, until the project lists it under `blocking`. When duplicate findings are merged, blocking wins: the merged finding is report-only only if every source was.
+**Opt-in and report-only.** New checks must not make the default run slower or fail work they were not meant to gate yet. For that reason `api-fuzzer`, `mutation-tester`, `system-tester`, `perf-tester` and `security-scanner` are `opt_in`: a tag that selects one does not run it unless the project enables it (below). The coordinator lists it as not run, reason `opt-in`. An enabled opt-in specialist starts **report-only**: its checks and findings are marked report-only and shown to the human, but they do not start a fix round, block "done", or (for a BLOCKED check) stop the run, until the project lists it under `blocking`. When duplicate findings are merged, blocking wins: the merged finding is report-only only if every source was.
 
 **A project's override** lives in `<repo>/.claude/agent-loop/selection.yml`, with the same shape:
 
@@ -439,7 +439,7 @@ Verdicts:
 - `superseded`: the rule has `superseded_by`, the id of the higher-rung rule that escalated it. It is still reported, with its counts, but never escalated again; the rule that replaced it carries the category from then on.
 - `dormant`: the rule is at least 90 days old and no work in that time touched what it governs, so there was nothing for it to prevent. The miner reports `days_since_added` and `records_since_added`; the retro judges relevance. Propose retiring it, so instructions don't accumulate forever.
 
-Transcript signals arrive uncategorized; the retro assigns each a category (reusing existing ones) or discards it as a false positive before counting. A user ledger is checked against the run records of whichever project the retro runs in.
+Transcript signals arrive uncategorised; the retro assigns each a category (reusing existing ones) or discards it as a false positive before counting. A user ledger is checked against the run records of whichever project the retro runs in.
 
 ## Verify skills (the `check` rung)
 

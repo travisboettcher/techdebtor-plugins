@@ -1,0 +1,91 @@
+name: Prose
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: prose scripts tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+      - run: python -m pip install pytest==9.2.0
+      - run: python -m pytest -q -p no:cacheprovider .github/scripts/tests
+
+  vale:
+    name: prose (Vale)
+    runs-on: ubuntu-latest
+    env:
+      VALE_VERSION: "3.28.1"
+      # sha256 of vale_3.28.1_Linux_64-bit.tar.gz, from the release's vale_3.28.1_checksums.txt.
+      VALE_SHA256: "068954ad869ebec24b8dec6ebcd1cbb1fd5f5a83e966a35baedfae8b2cdc093a"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Vale
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/vale"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/vale.tar.gz" \
+            "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
+          echo "${VALE_SHA256}  $dir/vale.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/vale.tar.gz" -C "$dir" vale
+          echo "$dir" >> "$GITHUB_PATH"
+      - name: Install the Vale packages
+        # Prompts, Voices, Std and proselint: each a versioned release zip, checked against the sha256
+        # pinned in .github/vale/packages.json before it is unpacked into the StylesPath.
+        run: python3 .github/scripts/vale_packages.py
+      - name: Run Vale
+        # Relative paths from the repository root: .vale.ini's globs pick each file's style by path.
+        # One Vale run per file set (no xargs, which could split a run into several JSON documents).
+        # Front matter is never linted, so description and argument-hint values of skills, agents
+        # and commands are copied out by frontmatter_prose.py, linted with the model-facing rules there,
+        # and mapped back to their source lines.
+        run: |
+          set -uo pipefail
+          vale --version
+          fm="$RUNNER_TEMP/frontmatter"
+          python3 .github/scripts/frontmatter_prose.py extract --out "$fm" || exit 1
+          mapfile -d '' files < <(git ls-files -z '*.md')
+          mapfile -d '' fm_files < <(cd "$fm" && find plugins -name '*.md' -print0 2>/dev/null)
+          status=0
+          vale --output=JSON --no-exit "${files[@]}" > "$RUNNER_TEMP/vale.json" 2> "$RUNNER_TEMP/vale.err" || status=$?
+          if [ "$status" -eq 0 ] && [ "${#fm_files[@]}" -gt 0 ]; then
+            (cd "$fm" && vale --config "$GITHUB_WORKSPACE/.vale.ini" --output=JSON --no-exit "${fm_files[@]}") \
+              > "$RUNNER_TEMP/fm-raw.json" 2> "$RUNNER_TEMP/vale.err" || status=$?
+          else
+            echo '{}' > "$RUNNER_TEMP/fm-raw.json"
+          fi
+          if [ "$status" -ne 0 ]; then
+            # Vale itself failed (configuration or runtime error): its error is JSON on stderr.
+            cat "$RUNNER_TEMP/vale.err" >&2
+            python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.err" || true
+            echo "::error title=Vale::Vale exited $status before linting; see its error above"
+            exit 1
+          fi
+          python3 .github/scripts/frontmatter_prose.py remap --out "$fm" "$RUNNER_TEMP/fm-raw.json" > "$RUNNER_TEMP/fm.json" || exit 1
+          python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.json" "$RUNNER_TEMP/fm.json"
+
+  token-budget:
+    name: token budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python3 .github/scripts/token_budget.py --claude "npx -y @anthropic-ai/claude-code@2.1.322"

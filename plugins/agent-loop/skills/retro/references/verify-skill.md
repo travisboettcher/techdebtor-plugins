@@ -47,5 +47,5 @@ One line per violation, `path:line: <what is wrong and what the rule expects>`, 
 
 ## Before committing
 
-- Follow the procedure once yourself, read-only, over a few files it applies to (ideally the ones from the evidence), and put the result (the files, the violation count and the verdict) in the commit message. A check that flags most of the correct files it reads is too broad: sharpen the steps.
+- Follow the procedure once yourself, read-only, over a few files it applies to (preferably the ones from the evidence), and put the result (the files, the violation count and the verdict) in the commit message. A check that flags most of the correct files it reads is too broad: sharpen the steps.
 - The ledger entry: `rung: check`, `location: ".claude/skills/verify-<category>/SKILL.md"` (or the `~/.claude/...` path for user scope).

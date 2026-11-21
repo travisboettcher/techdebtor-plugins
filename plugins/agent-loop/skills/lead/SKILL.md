@@ -43,7 +43,7 @@ Write the plan record:
 - **Test plan**: each criterion, its test, and the unit that adds it.
 - **Risks**, and what is **out of scope**.
 
-When a unit handles untrusted input or is security-sensitive (redaction or sanitising, parsing, auth, input validation, path handling, permission rules), its acceptance criteria include an **adversarial input list**: inputs glued to neighbours (`_`, `-`, no space), quoted (with spaces, escapes), prefixed and suffixed variants, split across a boundary or cut short, oversized, malformed or empty; and a **must-not-match list** bounding over-matching. Give both lists to the test-writer, implementer, tester and reviewer, and tag the unit `untrusted-input` or `security-sensitive`. For permission changes, state the narrowest acceptable entries as criteria.
+When a unit processes untrusted input or is security-sensitive (redaction or sanitising, parsing, auth, input validation, path handling, permission rules), its acceptance criteria include two lists. An **adversarial input list**: inputs glued to neighbours (`_`, `-`, no space), quoted (with spaces, escapes), prefixed and suffixed variants, split across a boundary or cut short, oversized, malformed or empty. A **must-not-match list** bounding over-matching. Give both lists to the test-writer, implementer, tester and reviewer, and tag the unit `untrusted-input` or `security-sensitive`. For permission changes, state the narrowest acceptable entries as criteria.
 
 Show the plan. Approval is **required** if the task is large or risky (touches many files, changes data formats or public interfaces, deletes or migrates anything, is hard to reverse, or the human sounded unsure), if you derived the criteria yourself, or if the run is delegated. Approval is always the human's answer: in a delegated run, only a `PLAN_APPROVED` reply marked as the human's own words counts, and an agent's approval never does. When required, ask for approval and wait: do not start step 4 (no tests, code or commits) until it is given (`skipped-plan-approval`), then note the time, `date -Iseconds`, as `plan_approved`. Otherwise `plan_approved` is `n/a`; proceed.
 
@@ -58,7 +58,17 @@ Units run one at a time, in plan order. Never run heavy jobs in parallel (full b
 
 ## 5. Test
 
-Brief the `agent-loop:tester` coordinator with: the acceptance criteria and their verifiers; `<base>` and the changed files (`git diff --stat <base>` plus untracked files); each unit's tags; the chosen verify skills' paths; the baseline failures (IDs and signatures) and wall time; the remaining budget (the table's or the task's, never over `budget_max`, less what earlier reports used); the paths `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`, `.claude/agent-loop/selection.yml` (if it exists) and `${CLAUDE_PLUGIN_ROOT}/docs/specialists/`; the round; and the rules brief. It returns one merged report saying which specialists it chose and why.
+Brief the `agent-loop:tester` coordinator with:
+
+- the acceptance criteria and their verifiers;
+- `<base>` and the changed files (`git diff --stat <base>` plus untracked files);
+- each unit's tags and the chosen verify skills' paths;
+- the baseline failures (IDs and signatures) and wall time;
+- the remaining budget (the table's or the task's, never over `budget_max`, less what earlier reports used);
+- the paths `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`, `.claude/agent-loop/selection.yml` (if it exists) and `${CLAUDE_PLUGIN_ROOT}/docs/specialists/`;
+- the round and the rules brief.
+
+It returns one merged report saying which specialists it chose and why.
 
 **Fast path.** With no unit tags, no tag's `files` signal in the changed files, and nothing enabled by the override, skip both coordinators: brief `agent-loop:test-runner` as above (no budget or table; shared rules `${CLAUDE_PLUGIN_ROOT}/docs/specialists/verification-rules.md`), then at step 6 `agent-loop:correctness-reviewer` (with `review-rules.md`), and any reviewer it escalates to. Record both pools in `selection`, baseline chosen.
 
@@ -88,7 +98,7 @@ Before reporting done, check that nothing changed since the last review: rerun t
 
 Always write a run record, including when the run is abandoned or stopped at the round limit. Path: `.claude/runs/YYYY-MM-DD-<slug>.yml` (today's date, a short kebab-case slug of the task; add `-2`, `-3` if the file exists). Read `${CLAUDE_SKILL_DIR}/references/run-record.md` now for its shape and rules, and follow them: every finding from every stage and round, including your own mistakes, with `stage` where the mistake was made and `caught_by` who caught it; the plan record from step 3 (with each unit's tags); the coordinators' `selection`; the baseline failures from step 2.
 
-Then check it with `scripts/record_gate.py` as the reference's "Checking the record" says. A failing check blocks "done"; never edit the record just to pass it.
+Then check it with `scripts/record_gate.py` as the reference's "Checking the record" says. A failing check blocks "done"; never edit the record only to pass it.
 
 If `.claude/runs/` did not exist before this run, tell the human and suggest adding `.claude/runs/` to `.gitignore`. Do not edit `.gitignore` unless they say so.
 

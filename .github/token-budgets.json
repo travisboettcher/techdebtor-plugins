@@ -1,0 +1,7 @@
+{
+  "_note": "Ceilings for each plugin's always-on token cost, as `claude plugin details` estimates it signed out (what CI sees; a signed-in CLI reports about 45% more). Set about 17% above the cost when last raised: agent-loop ~713, agent-ready ~140 (claude-code 2.1.322). Checked by .github/scripts/token_budget.py. A ceiling for a plugin that is not in this branch's marketplace.json is ignored.",
+  "always_on_tokens": {
+    "agent-loop": 840,
+    "agent-ready": 165
+  }
+}
