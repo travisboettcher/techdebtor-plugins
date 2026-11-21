@@ -1,6 +1,6 @@
 ---
 name: api-reviewer
-description: "agent-loop:reviewer specialist: public-interface compatibility and contracts between components."
+description: "agent-loop:reviewer specialist: interface compatibility and component contracts."
 model: inherit
 color: red
 tools: ["Read", "Glob", "Grep", "Bash"]

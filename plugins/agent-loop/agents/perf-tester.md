@@ -1,6 +1,6 @@
 ---
 name: perf-tester
-description: "agent-loop:tester specialist (opt-in): benchmarks the changed path against the run's base."
+description: "agent-loop:tester specialist (opt-in): benchmarks against the base."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

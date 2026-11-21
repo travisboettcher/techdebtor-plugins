@@ -54,6 +54,7 @@ Nothing project-specific ever lives in the plugin.
 | Run records | `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` | - |
 | Rules ledger | `<repo>/.claude/rules-ledger.yml` (committed) | `~/.claude/rules-ledger.yml` |
 | Rules themselves | `<repo>/CLAUDE.md`, `<repo>/.claude/skills`, `<repo>/.claude/settings.json` hooks, tests | `~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.claude/settings.json`, memory |
+| Selection table override | `<repo>/.claude/agent-loop/selection.yml` (committed; the default is the plugin's `docs/selection.yml`) | - |
 | Framework proposals | `<repo>/.claude/runs/framework-proposals.md` (a draft for the human to take upstream; never filed automatically) | same |
 
 Run records are local evidence; projects decide whether to commit or gitignore `.claude/runs/` (the default `lead` setup suggests gitignoring it).
@@ -257,6 +258,7 @@ It cannot change the baseline or the specialists. Anything invalid (an unknown s
 ### Running them
 
 - The coordinator states the effective tags, the specialists it chose and why (the baseline, which tag, verify skills), and those it did not run and why (`opt-in`, `budget`).
+- With no tags and no override file, a coordinator runs the baseline (and `check-runner` for verify skills) without reading the table, so the baseline path stays cheap.
 - Light specialists start together, in parallel. Heavy ones (anything that runs a full suite, mutation testing, fuzzing, system or performance runs) run one at a time, never two at once, and never while another heavy job of the run is going.
 - **Budget**, per lead run, for heavy specialists beyond the baseline: `heavy_runs` runs and `heavy_minutes` minutes of their wall time across all rounds (defaults 6 and 60; the project's override or the task text can change them). The lead passes what remains to the tester coordinator, which does not start a heavy specialist the remaining runs cannot cover and gives each one the remaining minutes as its time limit. One not started is listed as not run, reason `budget`; the lead asks the human whether to raise the budget rather than dropping it silently. The record's `selection` shows the budget and what was used.
 - Specialists report to the coordinator, never to the lead. The coordinator merges findings that are the same defect (same location and cause), keeping the highest severity and every specialist that reported it, and returns one report.

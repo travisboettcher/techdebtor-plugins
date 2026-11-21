@@ -1,6 +1,6 @@
 ---
 name: mutation-tester
-description: "agent-loop:tester specialist (opt-in): mutation testing scoped to the lines changed since the run's base."
+description: "agent-loop:tester specialist (opt-in): mutation testing scoped to the diff."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

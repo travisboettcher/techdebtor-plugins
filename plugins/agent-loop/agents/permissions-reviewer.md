@@ -1,6 +1,6 @@
 ---
 name: permissions-reviewer
-description: "agent-loop:reviewer specialist: least-privilege check on every permission the diff adds or changes."
+description: "agent-loop:reviewer specialist: least privilege for every permission change."
 model: inherit
 color: red
 tools: ["Read", "Glob", "Grep", "Bash"]

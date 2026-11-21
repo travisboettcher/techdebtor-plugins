@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Use this agent when the lead skill needs a planned unit implemented against its criteria and failing tests, or confirmed findings fixed. Not for exploration or deciding what to build.
+description: "Use this agent when the lead skill needs a planned unit implemented, or confirmed findings fixed."
 model: inherit
 color: green
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]

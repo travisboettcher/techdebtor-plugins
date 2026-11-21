@@ -1,6 +1,6 @@
 ---
 name: api-fuzzer
-description: "agent-loop:tester specialist (opt-in): fuzzes changed API operations against the project's spec for 500s and schema breaks."
+description: "agent-loop:tester specialist (opt-in): fuzzes changed API operations against the spec."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

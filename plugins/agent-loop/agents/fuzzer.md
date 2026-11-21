@@ -1,6 +1,6 @@
 ---
 name: fuzzer
-description: "agent-loop:tester specialist: times changed regexes on adversarial input; runs property and fuzz tests on changed code."
+description: "agent-loop:tester specialist: regex timing, property and fuzz tests."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

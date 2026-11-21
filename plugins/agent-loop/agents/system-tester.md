@@ -1,6 +1,6 @@
 ---
 name: system-tester
-description: "agent-loop:tester specialist (opt-in): system, end-to-end and contract tests; runs the app for real where documented."
+description: "agent-loop:tester specialist (opt-in): system, end-to-end and contract tests."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

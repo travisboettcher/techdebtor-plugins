@@ -1,6 +1,6 @@
 ---
 name: check-runner
-description: "agent-loop:tester specialist: follows the plan's verify skills, read-only, on the change since the run's base."
+description: "agent-loop:tester specialist: follows the plan's verify skills, read-only."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: "agent-loop:reviewer specialist: reads the diff as an attacker would (injection, authorisation, secrets, redaction)."
+description: "agent-loop:reviewer specialist: reads the diff as an attacker would."
 model: inherit
 color: red
 tools: ["Read", "Glob", "Grep", "Bash"]

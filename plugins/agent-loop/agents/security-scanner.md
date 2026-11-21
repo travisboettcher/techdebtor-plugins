@@ -1,6 +1,6 @@
 ---
 name: security-scanner
-description: "agent-loop:tester specialist (opt-in): the project's static security rules and dependency scan on the change."
+description: "agent-loop:tester specialist (opt-in): SAST and dependency scan."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

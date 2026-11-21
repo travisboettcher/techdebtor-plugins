@@ -1,6 +1,6 @@
 ---
 name: measurement-auditor
-description: "agent-loop:tester specialist: measurement invariants and run hygiene for changes to tests, coverage or CI test jobs."
+description: "agent-loop:tester specialist: measurement invariants and run hygiene."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

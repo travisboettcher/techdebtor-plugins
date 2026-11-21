@@ -2,7 +2,7 @@
 
 An agent graph for development that improves itself.
 
-- **`/agent-loop:lead <task>`** is a tech lead: it preflights the repo, plans the task as small units with testable criteria, runs test-writer, implementer, tester and independent reviewer agents in a bounded loop, gates the result against a baseline, and writes a run record of every mistake any stage caught.
+- **`/agent-loop:lead <task>`** is a tech lead: it preflights the repo, plans the task as small units with testable criteria, runs test-writer and implementer agents, then verification and independent review specialists chosen for the change's risks, in a bounded loop, gates the result against a baseline, and writes a run record of every mistake any stage caught.
 - **`/agent-loop:retro`** closes the loop: it mines those run records and your session transcripts for what keeps going wrong, proposes the cheapest rule that would stop each recurring mistake, and on the next retro checks whether each rule worked.
 
 The model does not learn; the scaffolding around it does. A rule only counts as an improvement once a later retro shows its category stopped recurring. The contract between the two halves (formats, ladder, verdicts, scope, privacy) is [`docs/DESIGN.md`](docs/DESIGN.md).
@@ -23,7 +23,7 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 /agent-loop:retro --record      # write a run record for the current session
 ```
 
-`lead` is user-invoked only (it launches several agents); give a round limit in the task if 3 is wrong, and a branch budget if about 300 changed lines per unit is wrong. The agents (`agent-loop:test-writer`, `agent-loop:implementer`, `agent-loop:tester`, `agent-loop:reviewer`) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
+`lead` is user-invoked only (it launches several agents); give a round limit in the task if 3 is wrong, and a branch budget if about 300 changed lines per unit is wrong. The agents (`agent-loop:test-writer`, `agent-loop:implementer`, and the `agent-loop:tester` and `agent-loop:reviewer` coordinators with their specialists) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
 
 ## How it works
 
@@ -31,15 +31,42 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 
 1. **Understand.** Reads `CLAUDE.md` and, if present, `.claude/rules-ledger.yml` and `~/.claude/rules-ledger.yml`. Every applicable rule goes into a rules brief that every agent receives. Acceptance criteria must be testable (EARS form recommended), each naming its test or verifier; with none, it stops and asks.
 2. **Preflight.** A clean tree; when starting on the default branch, a work branch from an up-to-date `origin/<default>`; the build, lint and test commands; a baseline test run, so tests that already fail are never blamed on the change; and the project's generators and stale-artifact checks, with every new file checked against their globs.
-3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval, and nothing is implemented or committed before it.
+3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), each with its risk tags (`untrusted-input`, `public-api`, `test-infra`, ...), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval, and nothing is implemented or committed before it.
 4. **Build each unit.** The `test-writer` agent writes failing tests from the criteria and interfaces, never the implementation; the `implementer` makes them pass; the lead reruns the tests itself rather than trusting the report. One commit per unit, if you asked for commits. Heavy jobs (full builds, mutation testing) never run in parallel.
-5. **Test.** The `tester` agent runs the project's real verifiers (including the project's and your `verify-*` skills that the plan chose for the changed files) and reports pass/fail with output, separating pre-existing failures. When the change touches tests or measurement, it also checks measurement invariants (a subset run never beats the full run, order independence, no silent allowlists, and more). It does not fix code.
-6. **Review.** The `reviewer` agent gets the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
+5. **Test.** The `tester` coordinator picks verification specialists from the units' risk tags (below), runs them and returns one merged pass/fail report with output, separating pre-existing failures. It does not fix code.
+6. **Review.** The `reviewer` coordinator picks review specialists the same way. They get the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. They report only findings they have verified, each with category, severity, file:line and a failure scenario, or "no findings".
 7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
 8. **Pre-push gate.** The final diff must be the one last reviewed; then whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
 9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record, when the plan was approved, and the baseline failures, then checks it with `scripts/record_gate.py`: the run is not done unless the change still matches the fingerprint taken for the last review and no commit of the run predates a required plan approval (yours; in a delegated run, relayed by the delegator).
 
 It never merges and never pushes to the default branch. It commits only if you asked for commits, a branch or a pull request in the session, and pushes or opens a draft pull request only if you asked for that; otherwise it leaves the change uncommitted with the units listed.
+
+### Specialists
+
+```
+lead ─┬─► tester (coordinator) ── verification: run things, collect evidence
+      │     baseline: test-runner
+      │     by tag:   measurement-auditor · check-runner (verify skills) · fuzzer
+      │     opt-in:   api-fuzzer · mutation-tester · system-tester · perf-tester · security-scanner
+      └─► reviewer (coordinator) ── review: read the code, judge it
+            baseline: correctness-reviewer
+            by tag:   security-reviewer · permissions-reviewer · api-reviewer · docs-reviewer
+```
+
+Each specialist is its own agent with one narrow job, the fewest tools that work and a shared report format. The lead tags each unit with risk tags; a selection table ([`docs/selection.yml`](docs/selection.yml), shown in [`docs/DESIGN.md`](docs/DESIGN.md)) maps tags to specialists, on top of a baseline that always runs. Each coordinator says which specialists it chose and why, runs light ones in parallel and heavy ones (full suites, fuzzing, mutation, system and performance runs) one at a time within a per-run budget, and merges duplicate findings before the lead sees them. A specialist whose tool is missing reports BLOCKED and names it; it never installs anything (a readiness audit of the repository finds those gaps).
+
+New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also change the budget and which specialists each tag runs:
+
+```yaml
+schema: 1
+enable: [mutation-tester]     # opt-in specialists to run
+blocking: [mutation-tester]   # whose findings block like any other (otherwise report-only)
+tags:
+  data-migration:
+    run: [system-tester, api-reviewer]
+```
+
+The retro measures each specialist (precision, and misses by tag) and proposes changes to that file behind the same human gate as any rule.
 
 ### `/agent-loop:retro`: the feedback loop
 
@@ -54,7 +81,7 @@ It never merges and never pushes to the default branch. It commits only if you a
                         next /agent-loop:retro: did the category stop recurring? keep / escalate / retire
 ```
 
-1. **Mine.** `scripts/retro_mine.py` (Python 3.11+, standard library only) reads `.claude/runs/*.yml` from every worktree, both rules ledgers, and this project's transcripts under `~/.claude/projects/` (including its worktrees). It emits redacted JSON: correction, interrupt, denial and revert signals, category counts, and each ledger rule's occurrences since it was added.
+1. **Mine.** `scripts/retro_mine.py` (Python 3.11+, standard library only) reads `.claude/runs/*.yml` from every worktree, both rules ledgers, the selection table and this project's transcripts under `~/.claude/projects/` (including its worktrees). It emits redacted JSON: correction, interrupt, denial and revert signals, category counts, each ledger rule's occurrences since it was added, and each specialist's precision and misses by tag.
 2. **Verify.** Every ledger rule gets a verdict: `working` (nothing in its category got past it; a hook or check catching the mistake shows it fires), `recurring` (something got past it: escalate or rewrite), `superseded` (a higher-rung rule replaced it: reported, never escalated again), or `dormant` (nothing for 90 days: retire it).
 3. **Cluster** signals and findings into categories, reusing existing ones, and count recurrences. One-offs that are not critical stay notes.
 4. **Propose** at most about five changes, highest recurrence x severity first, preferring to delete or merge rules over adding them.
@@ -81,6 +108,7 @@ findings:
     severity: minor
     detail: "The --help text still described the old default."
     caught_by: reviewer
+    specialist: docs-reviewer
     fixed: true
 notes: ""
 ```
@@ -97,9 +125,9 @@ On first use the lead suggests adding `.claude/runs/` to `.gitignore`; it does n
 | `instruction` | Seen twice, or once at `critical` severity: a line in CLAUDE.md, a skill, or memory. |
 | `check` | Recurs after an instruction exists, needs judgment to verify, and can be written as a repeatable procedure: a `verify-<category>` skill that reports violations as `path:line` lines and PASS/FAIL. |
 | `hook` | Recurs after an instruction (or a check) exists, and can be checked mechanically: a hook or CI check that blocks it. |
-
-A `check` is a skill, read-only by rule, in `.claude/skills/` or `~/.claude/skills/`. The lead picks the ones that apply to each unit's files and the tester follows them against the run's base commit like any verifier; it never runs a fix step, and reports a step that would run anything beyond reading as BLOCKED. A check that mistakes keep getting past moves to a hook or test where it can be made mechanical, otherwise its procedure is rewritten. The shape is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Verify skills"), with a worked example in [`docs/examples/verify-doc-drift/SKILL.md`](docs/examples/verify-doc-drift/SKILL.md).
 | `test` | The mistake is about the code's behaviour, not process: a test or eval that fails on it. |
+
+A `check` is a skill, read-only by rule, in `.claude/skills/` or `~/.claude/skills/`. The lead picks the ones that apply to each unit's files and the tester's check runner follows them against the run's base commit like any verifier; it never runs a fix step, and reports a step that would run anything beyond reading as BLOCKED. A check that mistakes keep getting past moves to a hook or test where it can be made mechanical, otherwise its procedure is rewritten. The shape is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Verify skills"), with a worked example in [`docs/examples/verify-doc-drift/SKILL.md`](docs/examples/verify-doc-drift/SKILL.md).
 
 ## Human gate and scope
 
@@ -115,7 +143,7 @@ Nothing project-specific lives in the plugin.
 |---|---|---|
 | Run records | `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` | - |
 | Rules ledger | `<repo>/.claude/rules-ledger.yml` (committed) | `~/.claude/rules-ledger.yml` |
-| Rules | `CLAUDE.md`, `.claude/skills`, `.claude/settings.json` hooks, tests | `~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.claude/settings.json`, memory |
+| Rules | `CLAUDE.md`, `.claude/skills`, `.claude/settings.json` hooks, tests, `.claude/agent-loop/selection.yml` | `~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.claude/settings.json`, memory |
 | Framework proposals | `<repo>/.claude/runs/framework-proposals.md` | same |
 
 Whether `.claude/runs/` is committed or gitignored is up to each project.

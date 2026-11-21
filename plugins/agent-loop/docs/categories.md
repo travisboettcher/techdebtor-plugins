@@ -2,7 +2,7 @@
 
 The starting vocabulary for a run record's `category` (see `DESIGN.md`). A category is the unit a retro counts, so the same mistake must get the same name in every run. Before inventing a category, reuse one from this catalog, the rules ledgers, or earlier run records; invent a new kebab-case one only when none fits, and name the kind of mistake, not the incident. A retro may propose adding a recurring new category here, as a framework-scope proposal behind the human gate.
 
-Each entry: the category, what goes wrong, the `stage` where it is usually made (the run record's `stage`: where the mistake was made, not who caught it; the lead's own mistakes, preflight included, are `plan`), and the cheapest rule known to stop it. A rule naming a part of this plugin (a gate, a preflight step, an agent's standing check) is already applied there; the others are what a retro should propose when the category recurs.
+Each entry: the category, what goes wrong, the `stage` where it is usually made (the run record's `stage`: where the mistake was made, not who caught it; the lead's own mistakes, preflight included, are `plan`), and the cheapest rule known to stop it. A rule naming a part of this plugin (a gate, a preflight step, a specialist's check) is already applied there, for the units whose risk tags select that specialist (`docs/selection.yml`); the others are what a retro should propose when the category recurs.
 
 ## Process
 

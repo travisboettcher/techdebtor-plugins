@@ -1,9 +1,4 @@
-# The default selection table (docs/DESIGN.md, "Specialists").
-# The lead tags each plan unit with the risk tags below; the coordinators
-# (agent-loop:tester, agent-loop:reviewer) run the baseline plus the
-# specialists the tags select. A project overrides this in
-# .claude/agent-loop/selection.yml (same shape; see DESIGN.md). Read by the
-# coordinators, the lead (tag names and meanings) and scripts/retro_mine.py.
+# The default selection table: DESIGN.md, "Specialists". Projects override it in .claude/agent-loop/selection.yml.
 schema: 1
 baseline: [test-runner, correctness-reviewer]   # always run; an override cannot remove them
 budget:                       # per lead run, for heavy specialists beyond the baseline

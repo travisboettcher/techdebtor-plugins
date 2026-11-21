@@ -1,6 +1,6 @@
 ---
 name: test-runner
-description: "agent-loop:tester specialist: runs the criteria's verifiers and the project's tests, lint and type checks against the baseline."
+description: "agent-loop:tester specialist: runs the verifiers and tests against the baseline."
 model: inherit
 color: yellow
 tools: ["Read", "Glob", "Grep", "Bash"]

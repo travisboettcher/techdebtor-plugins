@@ -1,6 +1,6 @@
 ---
 name: docs-reviewer
-description: "agent-loop:reviewer specialist: docs and contract drift left by the diff."
+description: "agent-loop:reviewer specialist: docs and contract drift."
 model: inherit
 color: red
 tools: ["Read", "Glob", "Grep", "Bash"]

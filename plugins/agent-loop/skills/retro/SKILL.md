@@ -46,15 +46,17 @@ Arguments given: `$ARGUMENTS`
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" --root "<ROOT>" --since 30d --max-signals 200 > "<OUT>"
 ```
 
-Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `superseded_by`, `occurrences_since`, split into `caught_by_rule` and `escaped`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
+Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, `specialists` (below), and `ledgers.project` / `ledgers.user` (each rule with `superseded_by`, `occurrences_since`, split into `caught_by_rule` and `escaped`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
 
 Windows (`window`): the miner reads every run record in every worktree of the project whatever `--since` says, so each rule's `occurrences_since` already covers all records since its `added` date; only `category_counts` and `run_records.records` are limited to the requested window (`window.since`). Transcript signals reach further back: to the `added` date of the oldest ledger rule, at most 90 days (`window.transcripts_since`, with the reason in `window.transcripts_extended_for`). Signals older than `window.since` are there to verify ledger rules (step 2); do not count them toward new proposals (steps 3-4).
+
+`specialists` measures the verification and review specialists from every run record with a `selection`: `selection` (the table's paths and any `errors` in the project's override), `by_specialist` (per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses` (findings in its own categories, in a run that chose it, that it did not report), `miss_rate`, and the same counts `by_tag`), and `by_tag` (per tag: `runs` and the categories `escaped` to the human or CI).
 
 Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was just caution) before counting.
 
 ### 2. Verify every ledger rule
 
-For each rule in both ledgers, add to the run-record escapes (`escaped`) any signals that clearly belong to the rule's category and are dated after `added`; a signal is always an escape. `caught_by_rule` counts findings a `hook` or `check` rule caught itself: the rule fired, and those never make it `recurring`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
+For each rule in both ledgers, add to the run-record escapes (`escaped`) any signals that clearly belong to the rule's category and are dated after `added`; a signal is always an escape. `caught_by_rule` counts findings a `hook` or `check` rule caught itself, or a `selection` rule's specialist reported: the rule fired, and those never make it `recurring`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
 
 | Verdict | When | Action |
 |---|---|---|
@@ -82,9 +84,16 @@ Rung (the ladder):
 Scope:
 - `project`: only makes sense in this repo (its layout, tools, conventions).
 - `user`: the human's preferences or environment across repos (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/.claude/skills`, memory).
-- `framework`: would help anyone using these plugins (a missing reviewer check, a better lead prompt, a new catalog category with its description, usual stage and cheapest rule).
+- `framework`: would help anyone using these plugins (a missing review specialist check, a better lead prompt, a change to the default selection table, a new catalog category with its description, usual stage and cheapest rule).
 
-Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
+**Selection table.** From `specialists`, also consider (ranked with the rest, counting toward the five):
+- *Drop* a specialist from a tag when it ran for that tag in at least 5 runs and found nothing there; heavy ones first, since they cost the most.
+- *Add* a specialist to a tag when a category escaped (`by_tag.<tag>.escaped`) in two or more runs with that tag and the specialist that owns the category (its `categories` in the table) was not chosen; or *enable* an opt-in one that owns it.
+- A specialist with low `precision` (most of its findings rejected) or a high `miss_rate` needs its brief rewritten, not a table change: a framework proposal.
+- Override `errors` are reported as found, not proposed around.
+The change goes in the project's `.claude/agent-loop/selection.yml` (create it as `schema: 1` if missing; its shape is DESIGN.md's "Specialists"), with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds or drops, and `location: ".claude/agent-loop/selection.yml"`. A change the plugin's default table needs in every project is framework scope.
+
+Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path; for a `selection`, the override file), `specialist` (a `selection` rule only), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 
 ### 5. Human gate
 
@@ -96,7 +105,7 @@ WT=$(mktemp -d /tmp/retro-wt-XXXXXX)
 git worktree add -b "$BR" "$WT" <default-branch>
 ```
 
-In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, verify skill, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing); an escalation also sets the lower rule's `superseded_by` to the new rule's id, in the same commit. Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added; follow a new verify skill's procedure once, read-only, as its reference says. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
+In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, verify skill, hook config + script, test, or selection override) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing); an escalation also sets the lower rule's `superseded_by` to the new rule's id, in the same commit. Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added; follow a new verify skill's procedure once, read-only, as its reference says. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
 
 **User scope.** Show each change as a unified diff against the current file, or against nothing for a new one such as `~/.claude/skills/verify-<category>/SKILL.md` (including the `~/.claude/rules-ledger.yml` entry), and ask. Apply only the ones the human approves, exactly as shown.
 
@@ -107,9 +116,10 @@ In `$WT`: first one commit `retro: verify ledger rules` with the history entries
 Finish with:
 
 1. **Rules verified**: table of id, category, occurrences since added, verdict, action.
-2. **Proposals**: table of category, count, severity, rung, scope, where (branch + commit, diff awaiting yes, or framework-proposals.md).
-3. **Not proposed**: one-off notes, false positives discarded, candidates cut by the five-proposal limit, and why.
-4. How to review: `git log -p <default>..retro/YYYY-MM-DD`, then merge or delete the branch.
+2. **Specialists**: table of specialist, runs, precision, misses (and miss rate), and the tags where it caught nothing or missed something; then each tag's escaped categories.
+3. **Proposals**: table of category, count, severity, rung, scope, where (branch + commit, diff awaiting yes, or framework-proposals.md).
+4. **Not proposed**: one-off notes, false positives discarded, candidates cut by the five-proposal limit, and why.
+5. How to review: `git log -p <default>..retro/YYYY-MM-DD`, then merge or delete the branch.
 
 Delete the miner output at the end: `rm -f "<OUT>"` with the exact path `mktemp` printed. Never a glob: other retros may be running.
 

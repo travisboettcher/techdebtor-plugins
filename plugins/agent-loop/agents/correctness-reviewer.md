@@ -1,6 +1,6 @@
 ---
 name: correctness-reviewer
-description: "agent-loop:reviewer specialist: independent read of the diff for logic errors, unmet criteria and scope."
+description: "agent-loop:reviewer specialist: logic, unmet criteria and scope."
 model: inherit
 color: red
 tools: ["Read", "Glob", "Grep", "Bash"]

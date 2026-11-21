@@ -333,3 +333,17 @@ def test_the_documented_run_record_example_carries_the_specialist_fields():
     assert rep["by_specialist"]["correctness-reviewer"]["findings"] == 1
     assert rep["by_specialist"]["docs-reviewer"]["rejected"] == 1
     assert review_failures(rec) == [] and approval_failures(rec, required=True, repo=None, base=None) == []
+
+
+def test_the_lead_tags_units_and_briefs_both_coordinators_with_the_table():
+    text = (PLUGIN / "skills/lead/SKILL.md").read_text()
+    assert "**Risk tags**" in text
+    assert "${CLAUDE_PLUGIN_ROOT}/docs/selection.yml" in text and str(OVERRIDE_SELECTION) in text
+    assert "`agent-loop:tester` coordinator" in text and "`agent-loop:reviewer` coordinator" in text
+    assert "`selection`" in text and "`specialist`" in text and "report_only" in text
+
+
+def test_the_retro_proposes_selection_changes_as_ledger_rules():
+    text = (PLUGIN / "skills/retro/SKILL.md").read_text()
+    assert "rung: selection" in text and str(OVERRIDE_SELECTION) in text
+    assert "precision" in text and "miss_rate" in text
