@@ -378,8 +378,9 @@ plan:                         # the plan record, inline
     - "Dry run for import."
   branch_budget: 300
 baseline_failures:            # failing on the base before any change
-  - tests/test_net.py::test_fetch[ipv6]
-  - "tests/test_slow.py::test_timeout"
+  - test: tests/test_net.py::test_fetch[ipv6]
+    signature: "ConnectionError: [Errno 101] Network is unreachable (10.0.0.5)"
+  - "tests/test_slow.py::test_timeout"      # the older plain-ID form stays valid
 findings:
   - stage: plan
     category: branch-over-budget
@@ -401,7 +402,11 @@ def test_record_with_plan_and_baseline_fields_parses(tmp_path):
     assert plan["risks"] == ["Callers that open the file before the check."]
     assert plan["out_of_scope"] == ["Dry run for import."]
     assert plan["branch_budget"] == 300
-    assert rec["baseline_failures"] == ["tests/test_net.py::test_fetch[ipv6]", "tests/test_slow.py::test_timeout"]
+    b0, b1 = rec["baseline_failures"]
+    assert b0["test"] == "tests/test_net.py::test_fetch[ipv6]"
+    assert b0["signature"].startswith("ConnectionError: [Errno 101] Network is unreachable")
+    assert "10.0.0.5" not in b0["signature"]  # signatures are redacted like every record string
+    assert b1 == "tests/test_slow.py::test_timeout"
     assert rec["stages"][0] == "preflight"
     since = datetime(2026, 11, 1, tzinfo=timezone.utc)
     assert category_counts(recs, since)["branch-over-budget"]["count"] == 1
@@ -426,4 +431,6 @@ def test_documented_run_record_example_parses_with_new_fields(doc):
     rec = parse_yaml_lite(example)
     assert set(rec["plan"]) >= {"approach", "alternative", "units", "risks", "out_of_scope"}
     assert isinstance(rec["baseline_failures"], list)
+    if doc.startswith("docs"):  # the contract shows the signature form
+        assert set(rec["baseline_failures"][0]) == {"test", "signature"}
     assert isinstance(rec["findings"], list)

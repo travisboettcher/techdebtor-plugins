@@ -17,7 +17,9 @@ plan:                         # the plan record from step 3 (or a path to it)
   risks: ["..."]
   out_of_scope: ["..."]
   branch_budget: 300
-baseline_failures: []         # tests failing on the base before any change
+baseline_failures:            # tests failing on the base before any change; [] when none
+  - test: "path::test_name"
+    signature: "ExceptionType: one redacted line"
 findings:
   - stage: implement          # where the mistake was made: plan | test-write | implement | test | review
     category: kebab-case-category
