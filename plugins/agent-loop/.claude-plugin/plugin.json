@@ -1,7 +1,7 @@
 {
   "name": "agent-loop",
-  "version": "0.1.1",
-  "description": "An agent graph that improves itself: /agent-loop:lead preflights the repo, plans a task in small units, runs test-writer and implementer agents, then verification and independent review specialists chosen for the change's risks, recording what each caught; /agent-loop:retro mines those records and your session transcripts for recurring mistakes, promotes fixes up a ladder (instruction, check, hook, test) behind a human gate, and checks that each rule actually worked.",
+  "version": "0.2.0",
+  "description": "An agent graph that improves itself: /agent-loop:lead preflights the repo, plans a task in small units, runs test-writer and implementer agents, then verification and independent review specialists chosen for the change's risks, recording what each caught; /agent-loop:dispatch runs several leads in the background, each in its own worktree, checks their claims and pushes their stacked branches only on your approval; /agent-loop:retro mines those records and your session transcripts for recurring mistakes, promotes fixes up a ladder (instruction, check, hook, test) behind a human gate, and checks that each rule actually worked.",
   "author": {
     "name": "Travis Boettcher"
   },

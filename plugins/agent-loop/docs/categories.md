@@ -8,11 +8,14 @@ Each entry: the category, what goes wrong, the `stage` where it is usually made 
 
 | Category | What goes wrong | Usually made | Cheapest known rule |
 |---|---|---|---|
-| `skipped-plan-approval` | Implementation started, or was committed, before a plan that needed the human's approval was approved (in a delegated run, the human's answer relayed by the delegator; an agent's approval never counts). | plan | Gate: `scripts/record_gate.py` fails without `plan_approved`, and on commits authored before it (DESIGN.md, "Gates"). |
+| `skipped-plan-approval` | Implementation started, or was committed, before a plan that needed the human's approval was approved (in a delegated run, a `PLAN_APPROVED` reply marked as the human's own answer; an agent's approval never counts). | plan | Gate: `scripts/record_gate.py` fails without `plan_approved`, and on commits authored before it; `delegated: true` always requires it (DESIGN.md, "Gates"). |
 | `skipped-independent-review` | The change was reported done without an independent review of the final diff (self-review, or fixes made after the last review). | plan | Gate: `scripts/record_gate.py` fails unless the change still matches the fingerprint taken for the last review (`reviewed_diff`). |
 | `branch-over-budget` | A unit or branch went well over the branch budget, or was split into a code part and a tests part. | plan | Split by behaviour with tests alongside; the lead checks `git diff --stat` per unit. |
 | `stale-trunk` | Branched from, or compared against, a stale local default branch instead of `origin/<default>`. | plan | Preflight: fetch, then branch from `origin/<default>` with `--no-track`. |
 | `scope-mismatch` | The change does more or less than the task asked: unrequested changes, or part of the task silently dropped. | implement | Criteria name every requested behaviour and the plan lists what is out of scope; the correctness reviewer's scope check. |
+| `unverified-claim` | A report claims a result that was never run, or that a rerun contradicts: tests passing, a bug reproduced or fixed, an invariant holding, a check run. | plan | Rerun every claim before passing it on: the lead reruns its agents' claims, and the dispatcher reruns a delegated lead's before relaying `PREPUSH_READY`. |
+| `pushed-without-approval` | A branch was pushed or a pull request opened without the human's approval (in a delegated run, a `PUSH_APPROVED` reply marked as the human's own answer). | plan | Push only after that approval, with explicit branch names. Gate: `scripts/record_gate.py` compares every remote with the snapshot taken at preflight (exit 4), and the dispatcher with its own before relaying `PREPUSH_READY`. |
+| `malformed-stack` | A stack of branches is not one commit per branch, each on the branch below it: an empty branch, several commits, a merge, or a branch based on something else. | plan | Fold a later round's fix into its unit's commit; the dispatcher counts each branch's commits before relaying `PREPUSH_READY`. |
 
 ## Generated files
 

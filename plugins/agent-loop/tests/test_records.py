@@ -136,8 +136,8 @@ def test_run_record_strings_are_redacted(tmp_path):
 
 def test_every_caught_by_value_is_kept_and_counted(tmp_path):
     # The miner does not enumerate caught_by; every value in the contract,
-    # including the downstream ones (implementer, lead), must pass through.
-    values = ["tester", "reviewer", "implementer", "lead", "human", "ci", "hook", "self"]
+    # including the downstream ones (implementer, lead, dispatcher), must pass through.
+    values = ["tester", "reviewer", "implementer", "lead", "dispatcher", "human", "ci", "hook", "self"]
     findings = "".join(
         f"  - stage: plan\n    category: contract-gap\n    severity: minor\n"
         f"    detail: \"x\"\n    caught_by: {v}\n    fixed: true\n" for v in values)
@@ -589,7 +589,7 @@ def test_split_is_none_for_a_rule_with_a_bad_date(tmp_path):
 def test_caught_by_lists_include_check(doc):
     text = (SCRIPT.parent.parent / doc).read_text()
     (values,) = re.findall(r"caught_by: reviewer +# (?:who noticed: )?(.*)$", text, re.M)
-    assert "check" in values.split(" | ") and "hook" in values.split(" | ")
+    assert {"check", "hook", "dispatcher"} <= set(values.split(" | "))
 
 
 def test_superseded_by_is_reported(tmp_path):

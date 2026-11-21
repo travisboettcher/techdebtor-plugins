@@ -14,6 +14,7 @@ TABLE = parse_yaml_lite(DEFAULT_SELECTION.read_text())
 SPECIALISTS = TABLE["specialists"]
 COORDINATORS = {"tester": "tester", "reviewer": "reviewer"}  # agent -> the pool it coordinates
 WRITERS = {"implementer", "test-writer"}
+LEADS = {"lead-worker"}  # the lead in delegated mode (/agent-loop:dispatch starts it)
 
 
 def agent(name):
@@ -34,7 +35,7 @@ ALL = sorted(p.stem for p in AGENTS.glob("*.md"))
 
 
 def test_every_agent_is_accounted_for():
-    assert set(ALL) == set(SPECIALISTS) | set(COORDINATORS) | WRITERS
+    assert set(ALL) == set(SPECIALISTS) | set(COORDINATORS) | WRITERS | LEADS
 
 
 @pytest.mark.parametrize("name", ALL)
@@ -54,6 +55,9 @@ def test_least_privilege_tools(name):
         assert tools == {"Agent", "Read", "Glob", "Grep"}
     elif name in WRITERS:
         assert tools == {"Read", "Glob", "Grep", "Write", "Edit", "Bash"}
+    elif name in LEADS:
+        # Agent to brief the loop's agents, Bash for git and tests, Write for the run record; no Edit.
+        assert tools == {"Agent", "Read", "Glob", "Grep", "Write", "Bash"}
     else:
         # Specialists read and run; nothing but the implementer and test-writer writes the repo,
         # and no specialist starts agents, so the tree stays two levels deep.
@@ -149,3 +153,27 @@ def test_specialist_categories_named_in_bodies_are_their_own_or_catalogued():
         _, body = agent(name)
         named = set(re.findall(r"\(`([a-z]+(?:-[a-z]+)+)`", body)) - set(SPECIALISTS) - set(TABLE["tags"])
         assert named <= catalog, (name, named - catalog)
+
+
+def test_the_lead_worker_follows_the_lead_skill_in_delegated_mode():
+    _, body = agent("lead-worker")
+    for path in ("<plugin_root>/skills/lead/SKILL.md", "<plugin_root>/skills/lead/references/delegated.md"):
+        assert path in body and (PLUGIN / path.replace("<plugin_root>/", "")).is_file(), path
+    for var in ("${CLAUDE_PLUGIN_ROOT}", "${CLAUDE_SKILL_DIR}", "$ARGUMENTS"):
+        assert var in body, var
+    assert "`PUSH_APPROVED`" in body and "never push to the default branch" in body
+    assert "```agent-loop-checkpoint\ncheckpoint: BLOCKED\n" in body
+
+
+def test_every_agent_that_may_run_heavy_jobs_names_the_lock():
+    rules = (PLUGIN / "docs/specialists/verification-rules.md").read_text()
+    assert "heavy_lock.py" in rules and "run_in_background" in rules
+    heavy = {n for n, s in SPECIALISTS.items() if s["weight"] == "heavy"}
+    for name in heavy:   # they follow the shared verification rules
+        assert "docs/specialists/verification-rules.md" in agent(name)[1], name
+    for name in ("implementer", "tester", "lead-worker"):
+        assert "heavy_lock.py" in agent(name)[1], name
+    _, implementer = agent("implementer")
+    assert "run_in_background" in implementer
+    _, writer = agent("test-writer")
+    assert "never the full suite, builds or heavy jobs" in writer

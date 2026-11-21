@@ -1139,7 +1139,7 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
 
 DEFAULT_SELECTION = Path(__file__).resolve().parent.parent / "docs" / "selection.yml"
 OVERRIDE_SELECTION = Path(".claude") / "agent-loop" / "selection.yml"
-ESCAPE_CATCHERS = ("human", "ci", "hook")
+ESCAPE_CATCHERS = ("human", "ci", "hook", "dispatcher")  # past the swarm (the dispatcher: past the lead too)
 NOT_TAGS = ("baseline", "verify-skills", "escalation")  # what else may select a specialist (`by`)
 
 
@@ -1306,7 +1306,7 @@ def _chosen(selection: list) -> dict[str, dict]:
 
 
 def _escaped(f: dict, first_round: int | None = None) -> bool:
-    """Did the finding get past the swarm: caught by the human, CI or a hook, or in a later round?"""
+    """Did the finding get past the swarm: caught by the human, CI, a hook or the dispatcher, or in a later round?"""
     if f.get("caught_by") in ESCAPE_CATCHERS:
         return True
     return first_round is not None and _whole(f.get("round")) and f["round"] > first_round
