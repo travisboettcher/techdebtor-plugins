@@ -6,9 +6,13 @@ Standard library only (Python 3.11+). Prints one JSON document to stdout:
 - ``signals``: places in session transcripts where the human corrected,
   interrupted or denied the agent, or where an edit was later undone. Each
   carries a short, redacted excerpt and a summary of the agent action before it.
-- ``run_records`` / ``category_counts``: findings from ``.claude/runs/*.yml``.
+- ``run_records`` / ``category_counts``: findings from ``.claude/runs/*.yml``
+  in every worktree of the project (counts are scoped to ``--since``).
 - ``ledgers``: every rule in the project and user rules ledgers, with the
-  occurrences of its category in run records since the rule was added.
+  occurrences of its category in all run records since the rule was added.
+- ``window``: the windows actually used. Transcript signals reach back past
+  ``--since`` to the oldest ledger rule's ``added`` date, at most 90 days, so
+  every rule can be verified against signals since it was added.
 
 Nothing raw leaves this script: every string taken from a transcript or a
 record passes through ``redact()`` first, and excerpts are capped.
@@ -28,6 +32,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from collections import Counter, deque
@@ -44,6 +49,37 @@ ACTION_MAX = 200
 
 _KEYWORDS = r"(?:api[_-]?key|access[_-]?key|private[_-]?key|key|token|secret|passw(?:or)?d|passwd|pwd|passphrase|credentials?|cookie|session[_-]?id)"
 
+# Token boundary: "_", "-" and other punctuation count as a boundary, unlike
+# \b, so a secret glued to an identifier (host_10.0.0.5, x_ghp_...) is still
+# found. Only a letter or digit directly before the match blocks it.
+_B = r"(?<![A-Za-z0-9])"
+
+
+def _mixed(prefix_len: int):
+    """Redact a prefixed token only if its body looks random (has a digit or an
+    upper-case letter), so prose like "pypi-packaging-guide" survives."""
+    def sub(m: re.Match) -> str:
+        body = m.group(0)[prefix_len:]
+        return "[REDACTED:token]" if re.search(r"[0-9A-Z]", body) else m.group(0)
+    return sub
+
+
+def _keep_redacted(prefix_group: int, value_group: int, label: str = "secret"):
+    def sub(m: re.Match) -> str:
+        v = m.group(value_group)
+        return m.group(prefix_group) + (v if v.startswith("[REDACTED") else f"[REDACTED:{label}]")
+    return sub
+
+
+def _user_cred(m: re.Match) -> str:
+    v = m.group(2)
+    if v.startswith("[REDACTED") or re.fullmatch(r"['\"]?\d+:\d+['\"]?", v):  # uid:gid, not a credential
+        return m.group(0)
+    return m.group(1) + "[REDACTED:cred]"
+
+
+_VALUE = r"(\"[^\"\n]*\"|'[^'\n]*'|[^\s'\",;&]+)"
+
 _REDACTIONS: list[tuple[re.Pattern, object]] = [
     # PEM private key blocks (also a block cut off before its END line).
     (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?:.*?-----END [A-Z0-9 ]*PRIVATE KEY-----|.*\Z)", re.S),
@@ -57,23 +93,35 @@ _REDACTIONS: list[tuple[re.Pattern, object]] = [
      r"\1[REDACTED:auth]"),
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{6,}"), "Bearer [REDACTED:auth]"),
     # Known token shapes.
-    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "[REDACTED:token]"),
-    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"), "[REDACTED:token]"),
-    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), "[REDACTED:token]"),
-    (re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}"), "[REDACTED:token]"),
-    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "[REDACTED:token]"),
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}"), "[REDACTED:jwt]"),
+    (re.compile(_B + r"github_pat_[A-Za-z0-9_]{20,}"), "[REDACTED:token]"),
+    (re.compile(_B + r"gh[pousr]_[A-Za-z0-9]{16,}"), "[REDACTED:token]"),
+    (re.compile(_B + r"sk-[A-Za-z0-9_-]{16,}"), "[REDACTED:token]"),
+    (re.compile(_B + r"xox[a-z]-[A-Za-z0-9-]{10,}"), "[REDACTED:token]"),
+    (re.compile(_B + r"gl(?:pat|ptt|dt|rt|cbt|soat|ft)-[A-Za-z0-9_-]{16,}"), "[REDACTED:token]"),
+    (re.compile(_B + r"npm_[A-Za-z0-9]{16,}"), _mixed(4)),
+    (re.compile(_B + r"pypi-[A-Za-z0-9_-]{16,}"), _mixed(5)),
+    (re.compile(_B + r"hf_[A-Za-z0-9]{16,}"), _mixed(3)),
+    (re.compile(_B + r"(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])"), "[REDACTED:token]"),
+    (re.compile(_B + r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}"), "[REDACTED:jwt]"),
+    # Command-line credentials: curl -u user:pass, --password VALUE, mysql -pVALUE.
+    (re.compile(r"(?<!\S)((?:-u|--user)(?:\s+|=))(['\"]?[^\s:'\"]+:[^\s'\"]+['\"]?)"), _user_cred),
+    (re.compile(r"(?i)(?<!\S)(--(?:password|passwd|pass|token|secret|api-key|apikey|access-token|auth-token)"
+                r"(?:\s+|=))" + _VALUE), _keep_redacted(1, 2)),
+    (re.compile(r"\b((?:mysql|mysqldump|mysqladmin|mariadb|mariadb-dump|sshpass)\b[^\n|;&]*?\s-p\s*)" + _VALUE),
+     _keep_redacted(1, 2)),
     # NAME_KEY=value, password: value, "token": "value" ... (value redacted, name kept).
-    (re.compile(r"(?i)(\b[A-Za-z0-9_.-]*" + _KEYWORDS + r"[A-Za-z0-9_]*[\"']?\s*[=:]\s*)"
-                r"(\"[^\"\n]*\"|'[^'\n]*'|[^\s'\",;&]+)"),
-     lambda m: m.group(1) + ("[REDACTED:secret]" if not m.group(2).startswith("[REDACTED") else m.group(2))),
+    (re.compile(r"(?i)(\b[A-Za-z0-9_.-]*" + _KEYWORDS + r"[A-Za-z0-9_]*[\"']?\s*[=:]\s*)" + _VALUE),
+     _keep_redacted(1, 2)),
+    # Short password names, as whole words only (pw: x, pass = x).
+    (re.compile(r"(?i)(" + _B + r"(?:pw|pass)[\"']?\s*[=:]\s*)" + _VALUE), _keep_redacted(1, 2)),
     # Emails.
     (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "[REDACTED:email]"),
-    # IPv4 addresses, private or not (with optional CIDR / port).
-    (re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:/\d{1,2})?(?::\d{1,5})?\b"),
+    # IPv4 addresses, private or not (with optional CIDR / port), also glued to "_".
+    (re.compile(r"(?<![0-9.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)"
+                r"(?:/\d{1,2})?(?::\d{1,5})?(?![0-9])"),
      "[REDACTED:ip]"),
     # Long hex runs (keys, hashes).
-    (re.compile(r"\b[0-9a-fA-F]{32,}\b"), "[REDACTED:hex]"),
+    (re.compile(_B + r"[0-9a-fA-F]{32,}(?![A-Za-z0-9])"), "[REDACTED:hex]"),
 ]
 
 def _user_pattern(name: str | None) -> re.Pattern | None:
@@ -276,8 +324,18 @@ def summarize_tool(block: dict) -> str:
     return _clip(redact(f"{name}: {target}" if target else name), ACTION_MAX)
 
 
+def _message(rec) -> dict:
+    msg = rec.get("message")
+    return msg if isinstance(msg, dict) else {}
+
+
+def _text_of(block: dict) -> str:
+    t = block.get("text")
+    return t if isinstance(t, str) else ""
+
+
 def _blocks(rec) -> list:
-    content = (rec.get("message") or {}).get("content")
+    content = _message(rec).get("content")
     if isinstance(content, list):
         return [b for b in content if isinstance(b, dict)]
     return []
@@ -292,13 +350,13 @@ def _human_text(rec) -> str | None:
         return None
     if rec.get("turnOrigin") not in (None, "human"):
         return None
-    content = (rec.get("message") or {}).get("content")
+    content = _message(rec).get("content")
     if isinstance(content, str):
         text = content
     elif isinstance(content, list):
         if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
             return None
-        text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        text = "\n".join(_text_of(b) for b in content if isinstance(b, dict) and b.get("type") == "text")
     else:
         return None
     text = _REMINDER_RX.sub("", text).strip()
@@ -323,9 +381,11 @@ class _FileMiner:
         try:
             rec = json.loads(line)
         except ValueError:
+            rec = None
+        if not isinstance(rec, dict) or ("message" in rec and not isinstance(rec["message"], dict)):
             self.stats["malformed_lines"] += 1
             return None
-        return rec if isinstance(rec, dict) else None
+        return rec
 
     def _in_window(self, rec) -> bool:
         ts = _parse_ts(rec.get("timestamp"))
@@ -403,9 +463,13 @@ class _FileMiner:
                 continue
             content = b.get("content")
             if isinstance(content, list):
-                content = "\n".join(c.get("text", "") for c in content if isinstance(c, dict))
+                content = "\n".join(_text_of(c) for c in content if isinstance(c, dict))
             content = content if isinstance(content, str) else ""
-            action = self._find_tool(b.get("tool_use_id"))
+            tool_use_id = b.get("tool_use_id")
+            if tool_use_id is not None and not isinstance(tool_use_id, str):
+                self.stats["malformed_lines"] += 1
+                continue
+            action = self._find_tool(tool_use_id)
             if user_rejected or "doesn't want to proceed with this tool use" in content:
                 _, sep, feedback = content.partition("the user said:")
                 self._signal("user_denial", rec, feedback.strip() if sep else "", action)
@@ -472,6 +536,14 @@ class _FileMiner:
         self.acted = False
         self.acted_tool = False
 
+    def _dispatch(self, line):
+        if _has(line, "type", "tool_result"):
+            self.on_tool_result(line)
+        elif _has(line, "type", "assistant"):
+            self.on_assistant(line)
+        elif _has(line, "type", "user"):
+            self.on_user(line)
+
     def run(self):
         with open(self.path, encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -480,12 +552,10 @@ class _FileMiner:
                     m = _SESSION_RX.search(line)
                     if m:
                         self.session = m.group(1)
-                if _has(line, "type", "tool_result"):
-                    self.on_tool_result(line)
-                elif _has(line, "type", "assistant"):
-                    self.on_assistant(line)
-                elif _has(line, "type", "user"):
-                    self.on_user(line)
+                try:
+                    self._dispatch(line)
+                except Exception:  # one odd record must never abort the run
+                    self.stats["malformed_lines"] += 1
         if self.pending_interrupt:
             prec, action = self.pending_interrupt
             self._signal("interrupt", prec, "", action)
@@ -510,7 +580,11 @@ def mine_transcripts(paths, since: datetime, max_signals: int = 500) -> dict:
         stats["files_scanned"] += 1
         stats["bytes"] += st.st_size
         subagent = "subagents" in path.parts
-        session = _FileMiner(path, since, subagent, stats, signals.append).run()
+        try:
+            session = _FileMiner(path, since, subagent, stats, signals.append).run()
+        except OSError:
+            stats["files_unreadable"] += 1
+            continue
         if not subagent:
             sessions.add(session or path.stem)
     counts = Counter(s["type"] for s in signals)
@@ -519,7 +593,7 @@ def mine_transcripts(paths, since: datetime, max_signals: int = 500) -> dict:
     if truncated:
         signals = signals[-max_signals:]
     out_stats = {k: stats.get(k, 0) for k in (
-        "files_scanned", "files_skipped_old", "files_missing", "bytes", "lines", "parsed_lines", "malformed_lines")}
+        "files_scanned", "files_skipped_old", "files_missing", "files_unreadable", "bytes", "lines", "parsed_lines", "malformed_lines")}
     out_stats["sessions"] = len(sessions)
     out_stats["signals_truncated"] = truncated
     return {"stats": out_stats, "signal_counts": dict(counts), "signals": signals}
@@ -533,70 +607,99 @@ class YamlLiteError(ValueError):
     pass
 
 
-def _strip_comment(s: str) -> str:
-    quote = None
-    for i, c in enumerate(s):
-        if quote:
-            if c == quote:
+def _outside_quotes(s: str, can_open):
+    """Yield (index, char) for every character of ``s`` outside a quoted
+    string. A quote opens only where ``can_open(s, i)`` allows it; inside double
+    quotes a backslash escapes the next character, and inside single quotes
+    ``''`` is a literal quote, as in YAML."""
+    quote, i, n = None, 0, len(s)
+    while i < n:
+        c = s[i]
+        if quote == '"':
+            if c == "\\":
+                i += 1
+            elif c == '"':
                 quote = None
-        elif c in "\"'" and (i == 0 or s[i - 1] in " \t:-[,"):
+        elif quote == "'":
+            if c == "'":
+                if i + 1 < n and s[i + 1] == "'":
+                    i += 1
+                else:
+                    quote = None
+        elif c in "\"'" and can_open(s, i):
             quote = c
-        elif c == "#" and (i == 0 or s[i - 1] in " \t"):
+        else:
+            yield i, c
+        i += 1
+
+
+def _strip_comment(s: str) -> str:
+    for i, c in _outside_quotes(s, lambda s, i: i == 0 or s[i - 1] in " \t:-[,"):
+        if c == "#" and (i == 0 or s[i - 1] in " \t"):
             return s[:i].rstrip()
     return s.rstrip()
 
 
 def _split_key(s: str):
-    quote = None
-    for i, c in enumerate(s):
-        if quote:
-            if c == quote:
-                quote = None
-        elif c in "\"'" and i == 0:
-            quote = c
-        elif c == ":" and (i + 1 == len(s) or s[i + 1] in " \t"):
+    for i, c in _outside_quotes(s, lambda s, i: i == 0):
+        if c == ":" and (i + 1 == len(s) or s[i + 1] in " \t"):
             key = s[:i].strip()
             if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
-                key = key[1:-1]
+                key = _scalar(key)
             return key, s[i + 1:].strip()
     return None
 
 
 def _split_flow(s: str) -> list[str]:
-    parts, buf, quote = [], "", None
-    for c in s:
-        if quote:
-            buf += c
-            if c == quote:
-                quote = None
-        elif c in "\"'":
-            quote = c
-            buf += c
-        elif c == ",":
-            parts.append(buf.strip())
-            buf = ""
-        else:
-            buf += c
-    if buf.strip():
-        parts.append(buf.strip())
+    parts, start = [], 0
+    for i, c in _outside_quotes(s, lambda s, i: True):
+        if c == ",":
+            parts.append(s[start:i].strip())
+            start = i + 1
+    if s[start:].strip():
+        parts.append(s[start:].strip())
     return parts
+
+
+_YAML_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", '"': '"', "\\": "\\", "/": "/", " ": " "}
+
+
+def _unescape_double(body: str) -> str:
+    try:
+        return json.loads('"' + body + '"')
+    except ValueError:
+        # YAML allows escapes JSON does not (\x41, "\ "); unknown ones stay as written.
+        return re.sub(r"\\(.)", lambda m: _YAML_ESCAPES.get(m.group(1), m.group(0)), body)
+
+
+def _closing_quote(s: str) -> int:
+    """Index of the quote that closes the string ``s`` opens at index 0, or -1."""
+    q, i = s[0], 1
+    while i < len(s):
+        if q == '"' and s[i] == "\\":
+            i += 2
+            continue
+        if s[i] == q:
+            if q == "'" and i + 1 < len(s) and s[i + 1] == "'":
+                i += 2
+                continue
+            return i
+        i += 1
+    return -1
 
 
 def _scalar(s: str):
     s = s.strip()
     if s == "" or s in ("~", "null", "Null", "NULL"):
         return None
-    if s.startswith('"'):
-        if not s.endswith('"') or len(s) < 2:
+    if s[0] in "\"'":
+        end = _closing_quote(s)
+        if end == -1:
             raise YamlLiteError(f"unterminated string: {s[:40]}")
-        try:
-            return json.loads(s)
-        except ValueError:
-            return s[1:-1]
-    if s.startswith("'"):
-        if not s.endswith("'") or len(s) < 2:
-            raise YamlLiteError(f"unterminated string: {s[:40]}")
-        return s[1:-1].replace("''", "'")
+        if end != len(s) - 1:
+            raise YamlLiteError(f"text after closing quote: {s[:40]}")
+        body = s[1:-1]
+        return _unescape_double(body) if s[0] == '"' else body.replace("''", "'")
     if s.startswith("["):
         if not s.endswith("]"):
             raise YamlLiteError(f"unterminated flow list: {s[:40]}")
@@ -735,39 +838,84 @@ def parse_yaml_lite(text: str):
 # Run records and ledgers
 # ---------------------------------------------------------------------------
 
+def _iso_date(value) -> str | None:
+    """YYYY-MM-DD for a date-shaped value, None if it is not date-shaped.
+    Raises ValueError for a date-shaped value that is not a real date (2026-02-30)."""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()[:10]
+    if isinstance(value, str):
+        m = re.match(r"\d{4}-\d{2}-\d{2}", value.strip())
+        if m:
+            try:
+                return date.fromisoformat(m.group(0)).isoformat()
+            except ValueError:
+                raise ValueError(f"invalid date: {m.group(0)}") from None
+    return None
+
+
 def _rec_date(rec, fname: str) -> str | None:
-    d = rec.get("date")
-    if isinstance(d, (date, datetime)):
-        return d.isoformat()[:10]
-    if isinstance(d, str) and re.match(r"\d{4}-\d{2}-\d{2}", d):
-        return d[:10]
-    m = re.match(r"(\d{4}-\d{2}-\d{2})", fname)
-    return m.group(1) if m else None
+    """A record's date: its ``date`` field, else the date its file name starts
+    with. Raises ValueError for an impossible date."""
+    return _iso_date(rec.get("date")) or _iso_date(fname)
+
+
+def worktree_roots(root) -> list[Path]:
+    """``root`` first, then every other worktree of its repository (from
+    ``git worktree list --porcelain``). Just ``root`` if git is unavailable or
+    ``root`` is not in a repository."""
+    root = Path(root)
+    roots = [root]
+    try:
+        out = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return roots
+    if out.returncode != 0:
+        return roots
+    seen = {os.path.realpath(root)}
+    for line in out.stdout.splitlines():
+        if line.startswith("worktree "):
+            wt = Path(line[len("worktree "):])
+            real = os.path.realpath(wt)
+            if real not in seen and wt.is_dir():
+                seen.add(real)
+                roots.append(wt)
+    return roots
 
 
 def load_run_records(root) -> tuple[list[dict], list[dict]]:
-    runs = Path(root) / ".claude" / "runs"
+    """Every ``.claude/runs/*.yml`` in every worktree of the project. A file
+    with the same name and content in several worktrees is read once."""
     records, errors = [], []
-    if not runs.is_dir():
-        return records, errors
-    for p in sorted(list(runs.glob("*.yml")) + list(runs.glob("*.yaml"))):
-        rel = str(p.relative_to(root))
-        try:
-            text = p.read_text(encoding="utf-8", errors="replace")
-        except OSError as e:
-            errors.append({"file": rel, "error": str(e), "raw": ""})
+    seen: set[tuple[str, str]] = set()
+    root = Path(root)
+    for wt in worktree_roots(root):
+        runs = wt / ".claude" / "runs"
+        if not runs.is_dir():
             continue
-        try:
-            rec = parse_yaml_lite(text)
-            if not isinstance(rec, dict):
-                raise YamlLiteError("not a mapping")
-        except YamlLiteError as e:
-            errors.append({"file": rel, "error": str(e), "raw": redact(text)[:4000]})
-            continue
-        rec = _redact_tree(rec)
-        rec["date"] = _rec_date(rec, p.name)
-        rec["_file"] = rel
-        records.append(rec)
+        for p in sorted(list(runs.glob("*.yml")) + list(runs.glob("*.yaml"))):
+            rel = str(p.relative_to(wt))
+            where = {} if wt == root else {"_worktree": redact(str(wt))}
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                errors.append({"file": rel, **where, "error": redact(str(e)), "raw": ""})
+                continue
+            if (p.name, text) in seen:
+                continue
+            seen.add((p.name, text))
+            try:
+                rec = parse_yaml_lite(text)
+                if not isinstance(rec, dict):
+                    raise YamlLiteError("not a mapping")
+                rec["date"] = _rec_date(rec, p.name)
+                rec = _redact_tree(rec)
+            except Exception as e:  # YamlLiteError, an impossible date, anything odd: never fatal
+                errors.append({"file": rel, **where, "error": redact(str(e)), "raw": redact(text)[:4000]})
+                continue
+            rec["_file"] = rel
+            rec.update(where)
+            records.append(rec)
     return records, errors
 
 
@@ -800,14 +948,17 @@ def load_ledger(path, scope: str) -> dict | None:
     path = Path(path)
     if not path.is_file():
         return None
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return {"path": str(path), "scope": scope, "rules": [], "error": str(e), "raw": ""}
     try:
         doc = parse_yaml_lite(text) or {}
         rules = doc.get("rules") if isinstance(doc, dict) else None
         rules = [r for r in rules if isinstance(r, dict)] if isinstance(rules, list) else []
         return {"path": str(path), "scope": scope, "rules": _redact_tree(rules)}
-    except YamlLiteError as e:
-        return {"path": str(path), "scope": scope, "rules": [], "error": str(e), "raw": redact(text)[:8000]}
+    except (YamlLiteError, RecursionError) as e:
+        return {"path": str(path), "scope": scope, "rules": [], "error": redact(str(e)), "raw": redact(text)[:8000]}
 
 
 def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
@@ -815,7 +966,12 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
         return None
     rules = []
     for r in ledger["rules"]:
-        added = _rec_date({"date": r.get("added")}, "")
+        try:
+            added = _iso_date(r.get("added"))
+        except ValueError as e:
+            rules.append({**r, "error": str(e), "occurrences_since": None, "last_occurrence": None,
+                          "records_since_added": None, "days_since_added": None, "last_verdict": None})
+            continue
         occ, last, active = 0, None, 0
         if added:
             for rec in records:
@@ -841,6 +997,32 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
     out["path"] = redact(out.get("path", ""))
     out["rules"] = rules
     return out
+
+
+TRANSCRIPT_LOOKBACK_MAX = timedelta(days=90)
+
+
+def transcript_window(since: datetime, now: datetime, ledgers) -> tuple[datetime, str | None]:
+    """The window for transcript signals: ``since``, extended back to the
+    ``added`` date of the oldest rule in ``ledgers`` (so every rule can be
+    verified against signals since it was added), but never further back than
+    90 days before ``now``. Returns the start and, if extended, which rule."""
+    oldest = None
+    for ledger in ledgers:
+        for r in (ledger or {}).get("rules", []):
+            try:
+                added = _iso_date(r.get("added"))
+            except ValueError:
+                continue
+            if added and (oldest is None or added < oldest[0]):
+                oldest = (added, r.get("id") or r.get("category") or "?")
+    if oldest is None:
+        return since, None
+    start = max(datetime.fromisoformat(oldest[0]).replace(tzinfo=timezone.utc), now - TRANSCRIPT_LOOKBACK_MAX)
+    if start >= since:
+        return since, None
+    capped = " (capped at 90 days)" if start == now - TRANSCRIPT_LOOKBACK_MAX else ""
+    return start, f"ledger rule {oldest[1]} added {oldest[0]}{capped}"
 
 
 # ---------------------------------------------------------------------------
@@ -879,15 +1061,21 @@ def main(argv=None) -> int:
         ap.error(str(e))
     root = os.path.abspath(args.root)
 
+    user_ledger = Path(args.user_ledger) if args.user_ledger else Path.home() / ".claude" / "rules-ledger.yml"
+    project_ledger = load_ledger(Path(root) / ".claude" / "rules-ledger.yml", "project")
+    user_ledger = load_ledger(user_ledger, "user")
+    t_since, extended_for = transcript_window(since, now, [project_ledger, user_ledger])
+
     if args.transcripts is not None:
         paths = _expand_transcripts(args.transcripts)
     else:
         paths = discover_transcripts(root, Path(args.projects_dir) if args.projects_dir else _default_projects_dir())
-    mined = mine_transcripts(paths, since, max_signals=args.max_signals)
+    mined = mine_transcripts(paths, t_since, max_signals=args.max_signals)
 
+    # Run records are small: all of them are read whatever the window, so the
+    # ledger sees every record since each rule was added.
     records, record_errors = load_run_records(root)
     in_window = [r for r in records if r.get("date") and r["date"] >= since.date().isoformat()]
-    user_ledger = Path(args.user_ledger) if args.user_ledger else Path.home() / ".claude" / "rules-ledger.yml"
 
     mined["stats"]["runtime_seconds"] = round(time.monotonic() - started, 3)
     out = {
@@ -895,6 +1083,13 @@ def main(argv=None) -> int:
         "generated_at": now.isoformat(timespec="seconds"),
         "project_root": redact(root),
         "since": since.isoformat(timespec="seconds"),
+        "window": {
+            "since": since.isoformat(timespec="seconds"),
+            "category_counts_since": since.isoformat(timespec="seconds"),
+            "run_records_for_ledger": "all",
+            "transcripts_since": t_since.isoformat(timespec="seconds"),
+            "transcripts_extended_for": extended_for,
+        },
         "transcripts": mined["stats"],
         "signal_counts": mined["signal_counts"],
         "signals": mined["signals"],
@@ -906,8 +1101,8 @@ def main(argv=None) -> int:
         },
         "category_counts": category_counts(records, since),
         "ledgers": {
-            "project": ledger_report(load_ledger(Path(root) / ".claude" / "rules-ledger.yml", "project"), records, now),
-            "user": ledger_report(load_ledger(user_ledger, "user"), records, now),
+            "project": ledger_report(project_ledger, records, now),
+            "user": ledger_report(user_ledger, records, now),
         },
     }
     json.dump(out, sys.stdout, indent=1, ensure_ascii=False)

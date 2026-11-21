@@ -349,3 +349,31 @@ def test_spaced_json_is_handled_too(jsonl):
                assistant_text("ok", T.format(4)), human("no, wrong", T.format(5))], compact=False)
     res = mine([p])
     assert res["signal_counts"] == {"user_denial": 1, "correction": 1}
+
+
+def test_malformed_records_never_abort_the_run(jsonl):
+    bad_tid = tool_use("Bash", {"command": "rm x"}, T.format(2), tid="t1")
+    rej = user_rejection("t1", T.format(3))
+    rej["message"]["content"][0]["tool_use_id"] = 12345
+    null_text = human("x", T.format(4))
+    null_text["message"]["content"] = [{"type": "text", "text": None}, {"type": "text", "text": "fine"}]
+    p = jsonl([human("go", T.format(1)), bad_tid, rej, null_text,
+               {"type": "user", "message": "hello", "timestamp": T.format(5)},
+               {"type": "assistant", "message": ["text"], "timestamp": T.format(6)},
+               tool_use("Edit", {"file_path": "a", "old_string": ["x"], "new_string": "y"}, T.format(7)),
+               assistant_text("done", T.format(8)), human("no, wrong", T.format(9))],
+              extra_lines=['[1, 2]', '"just a string"'])
+    res = mine([p])
+    assert res["stats"]["malformed_lines"] >= 3  # int id, non-dict message, unhashable edit
+    assert len(by_type(res, "correction")) == 1
+
+
+def test_handler_exception_is_counted_not_raised(jsonl, monkeypatch):
+    import retro_mine
+
+    def boom(self, line):
+        raise RuntimeError("unexpected")
+    monkeypatch.setattr(retro_mine._FileMiner, "on_assistant", boom)
+    p = jsonl([human("go", T.format(1)), assistant_text("done", T.format(2)), human("no, wrong", T.format(3))])
+    res = mine([p])
+    assert res["stats"]["malformed_lines"] == 1

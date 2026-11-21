@@ -193,3 +193,151 @@ def test_cli_end_to_end(tmp_path):
     assert data["ledgers"]["project"]["rules"][0]["occurrences_since"] == 1
     assert data["ledgers"]["user"] is None
     assert data["run_records"]["count_in_window"] == 1
+
+
+# --- quoting and escapes ----------------------------------------------------
+
+def test_escaped_quotes_and_hash_inside_strings():
+    doc = parse_yaml_lite('a: "Reviewer flagged \\"no # check\\" path"\n'
+                          "b: 'It''s fine # really'\n"
+                          'c: "back\\\\slash" # trailing comment\n'
+                          "d: [\"x, \\\"y\\\"\", 'z''s']\n")
+    assert doc["a"] == 'Reviewer flagged "no # check" path'
+    assert doc["b"] == "It's fine # really"
+    assert doc["c"] == "back\\slash"
+    assert doc["d"] == ['x, "y"', "z's"]
+
+
+def test_escaped_quotes_in_run_record_file(tmp_path):
+    text = RECORD.replace('detail: "Edited the generated file #2 instead of its source."',
+                          'detail: "Reviewer flagged \\"no # check\\" path"')
+    text = text.replace("detail: 'It''s too big'", "detail: 'It''s fine # really'")
+    _write(tmp_path, "2026-11-21-q.yml", text)
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    f0, f1 = recs[0]["findings"]
+    assert f0["detail"] == 'Reviewer flagged "no # check" path'
+    assert f1["detail"] == "It's fine # really"
+
+
+# --- bad dates ----------------------------------------------------------------
+
+def test_impossible_record_date_is_a_parse_error(tmp_path):
+    _write(tmp_path, "2026-11-21-a.yml", RECORD.replace("date: 2026-11-21", "date: 2026-02-30"))
+    _write(tmp_path, "2026-02-30-b.yml", RECORD.replace("date: 2026-11-21\n", ""))
+    _write(tmp_path, "2026-11-21-ok.yml", RECORD)
+    recs, errors = load_run_records(tmp_path)
+    assert [r["_file"].rsplit("/", 1)[-1] for r in recs] == ["2026-11-21-ok.yml"]
+    assert sorted(e["file"].rsplit("/", 1)[-1] for e in errors) == ["2026-02-30-b.yml", "2026-11-21-a.yml"]
+
+
+def test_impossible_ledger_added_date_is_reported_not_fatal(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(LEDGER.replace("added: 2026-11-10", "added: 2026-02-30"))
+    rep = ledger_report(load_ledger(p, "project"), _records(), NOW)
+    bad, good = rep["rules"]
+    assert bad["error"] and bad["occurrences_since"] is None and bad["days_since_added"] is None
+    assert "error" not in good and good["days_since_added"] > 90
+
+
+def test_unreadable_record_shapes_do_not_crash(tmp_path):
+    _write(tmp_path, "2026-11-21-list.yml", "- just\n- a list\n")
+    _write(tmp_path, "2026-11-21-weird.yml", "schema: 1\ndate: 2026-11-21\nfindings: 7\n")
+    recs, errors = load_run_records(tmp_path)
+    assert len(errors) == 1 and len(recs) == 1
+    assert category_counts(recs, datetime(2026, 11, 1, tzinfo=timezone.utc)) == {}
+
+
+# --- windows ------------------------------------------------------------------
+
+def _cli(tmp_path, root, since, transcripts, now="2026-11-21T12:00:00Z"):
+    out = subprocess.run([sys.executable, str(SCRIPT), "--root", str(root), "--since", since, "--now", now,
+                          "--transcripts", *[str(t) for t in transcripts],
+                          "--user-ledger", str(tmp_path / "none.yml")],
+                         capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
+
+
+def test_ledger_counts_records_older_than_the_window(tmp_path):
+    root = tmp_path / "repo"
+    _write(root, "2026-11-15-a.yml", RECORD.replace("2026-11-21", "2026-11-15"))
+    (root / ".claude" / "rules-ledger.yml").write_text(LEDGER)  # rule added 2026-11-10
+    data = _cli(tmp_path, root, "2026-11-19", [])
+    assert data["category_counts"] == {}                      # window-scoped
+    assert data["run_records"]["count_total"] == 1
+    assert data["ledgers"]["project"]["rules"][0]["occurrences_since"] == 1  # sees every record
+
+
+def test_transcript_window_extends_to_oldest_rule(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude" / "rules-ledger.yml").write_text(
+        LEDGER.replace("added: 2026-11-10", "added: 2026-10-15").replace("added: 2026-06-01", "added: 2026-11-01"))
+    t = write_jsonl(tmp_path / "t" / "s.jsonl", [
+        human("go", "2026-10-18T10:00:00Z"), assistant_text("done", "2026-10-18T10:00:01Z"),
+        human("no, that's wrong", "2026-10-18T10:00:02Z")])
+    data = _cli(tmp_path, root, "30d", [t])
+    assert data["since"].startswith("2026-10-22")
+    assert data["window"]["transcripts_since"].startswith("2026-10-15")
+    assert "generated-file-hand-edit-1" in data["window"]["transcripts_extended_for"]
+    assert data["signal_counts"] == {"correction": 1}
+
+
+def test_transcript_window_extension_is_capped_at_90_days(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude" / "rules-ledger.yml").write_text(LEDGER)  # old-rule-1 added 2026-06-01
+    data = _cli(tmp_path, root, "30d", [])
+    assert data["window"]["transcripts_since"].startswith("2026-08-23")
+
+
+def test_transcript_window_unchanged_without_older_rules(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    data = _cli(tmp_path, root, "2026-11-01", [])
+    assert data["window"]["transcripts_since"] == data["since"]
+    assert data["window"]["transcripts_extended_for"] is None
+
+
+# --- worktrees ----------------------------------------------------------------
+
+def _git(*args, cwd):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+                   cwd=cwd, check=True, capture_output=True)
+
+
+def test_run_records_are_read_from_every_worktree(tmp_path):
+    root, wt = tmp_path / "repo", tmp_path / "wt"
+    root.mkdir()
+    _git("init", "-q", "-b", "main", cwd=root)
+    _git("commit", "-q", "--allow-empty", "-m", "init", cwd=root)
+    _git("worktree", "add", "-q", "-b", "side", str(wt), cwd=root)
+    _write(root, "2026-11-21-a.yml", RECORD)
+    _write(wt, "2026-11-21-a.yml", RECORD)                                  # same name + content: one record
+    _write(wt, "2026-11-20-b.yml", RECORD.replace("2026-11-21", "2026-11-20"))  # only in the worktree
+    _write(wt, "2026-11-19-a.yml", RECORD.replace("2026-11-21", "2026-11-19"))
+    _write(tmp_path / "other", "2026-11-21-a.yml", RECORD)                  # not a worktree: ignored
+    recs, errors = load_run_records(root)
+    assert errors == []
+    assert sorted(r["date"] for r in recs) == ["2026-11-19", "2026-11-20", "2026-11-21"]
+    # reading from the worktree finds the same set
+    recs_wt, _ = load_run_records(wt)
+    assert sorted(r["date"] for r in recs_wt) == ["2026-11-19", "2026-11-20", "2026-11-21"]
+
+
+def test_same_name_different_content_is_kept(tmp_path):
+    root, wt = tmp_path / "repo", tmp_path / "wt"
+    root.mkdir()
+    _git("init", "-q", "-b", "main", cwd=root)
+    _git("commit", "-q", "--allow-empty", "-m", "init", cwd=root)
+    _git("worktree", "add", "-q", "-b", "side", str(wt), cwd=root)
+    _write(root, "2026-11-21-a.yml", RECORD)
+    _write(wt, "2026-11-21-a.yml", RECORD.replace("Free text, optional.", "different"))
+    recs, _ = load_run_records(root)
+    assert len(recs) == 2
+
+
+def test_non_git_root_falls_back_to_root(tmp_path):
+    _write(tmp_path, "2026-11-21-a.yml", RECORD)
+    recs, errors = load_run_records(tmp_path)
+    assert len(recs) == 1 and errors == []

@@ -100,7 +100,11 @@ def test_home_directory_is_shortened():
 
 @pytest.mark.parametrize("text", [
     "please don't edit the generated file, change the source instead",
-    "run the tests in tests/test_redact.py and plugins/retro/scripts",
+    "run the tests in tests/test_redact.py and src/app/scripts",
+    "mkdir -p build/out && git push -u origin main",
+    "docker run -u 1000:1000 image",
+    "see npm_config_cache and the pypi-packaging-guide page",
+    "pwsh: command not found",
     "use version 1.2.3 of the library",
     "the session id is 4bc5d53d",
     "KEY points: be careful",
@@ -131,3 +135,44 @@ def test_short_or_generic_user_names_are_ignored():
     import retro_mine
     assert retro_mine._user_pattern("me") is None
     assert retro_mine._user_pattern("root") is None
+
+
+# Secrets glued to "_" or other word characters, and short tokens with known prefixes.
+GLPAT = "glpat-" + "AbCdEfGhIjKlMnOpQrSt"
+NPM = "npm_" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn"
+PYPI = "pypi-" + "AgEIcHlwaS5vcmcCJ"
+HF = "hf_" + "AbCdEfGhIjKlMnOpQr12"
+XOXP = "xoxp-" + "1234567890-AbCdEf"
+GHS_SHORT = "ghs_" + "Ab1Cd2Ef3Gh4Ij5K"
+
+
+@pytest.mark.parametrize("text,secret", [
+    ("host_192.168.1.5", "192.168.1.5"),
+    ("db_10.0.0.5", "10.0.0.5"),
+    ("10.0.0.5_db", "10.0.0.5"),
+    ("x_ghp_" + "a" * 28, "a" * 28),
+    ("foo_" + "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdef", "eyJzdWIiOiIxIn0"),
+    ("curl -u admin:hunter2secret https://x", "hunter2secret"),
+    ("curl --user=admin:hunter2secret https://x", "hunter2secret"),
+    ("mysql --password hunter2secret -h db", "hunter2secret"),
+    ("mysql -u root -p hunter2secret mydb", "hunter2secret"),
+    ("mysqldump -phunter2secret mydb", "hunter2secret"),
+    ("sshpass -p hunter2secret ssh x", "hunter2secret"),
+    ("tool --token hunter2secret", "hunter2secret"),
+    ("pw:hunter2", "hunter2"),
+    ("pw = hunter2", "hunter2"),
+    ("pwd=hunter2", "hunter2"),
+    ("passwd: hunter2", "hunter2"),
+    ("token " + GLPAT, GLPAT[6:]),
+    ("token " + NPM, NPM[4:]),
+    ("token " + PYPI, PYPI[5:]),
+    ("token " + HF, HF[3:]),
+    ("token " + XOXP, XOXP[5:]),
+    ("token " + GHS_SHORT, GHS_SHORT[4:]),
+    ("x_" + GLPAT, GLPAT[6:]),
+])
+def test_glued_and_prefixed_secrets_are_redacted(text, secret):
+    out = redact(text)
+    assert secret not in out, out
+    assert "[REDACTED" in out
+    assert redact(out) == out
