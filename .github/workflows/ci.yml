@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+    # edited: GitHub retargets a stacked PR's base to the default branch once
+    # the PR below it merges, and the version check's changelog rule depends
+    # on the base.
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -15,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.13"]
+        python: ["3.11", "3.15"]  # declared minimum, latest stable
     defaults:
       run:
         working-directory: plugins/agent-loop
@@ -41,3 +45,24 @@ jobs:
           node-version: "22"
       - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate .
       - run: npx -y @anthropic-ai/claude-code@2.1.322 plugin validate plugins/agent-loop
+
+  version-bump:
+    name: plugin version bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the default branch and the merge base
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install pytest==9.2.0
+      - run: python -m pytest -q .github/scripts/tests
+      - name: Changed plugins carry a version bump and changelog entry
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python .github/scripts/version_check.py --default-branch "$DEFAULT_BRANCH" --base-ref "$BASE_REF"
