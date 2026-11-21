@@ -50,6 +50,28 @@ The skill writes nothing into the audited repository. Its pre-approved tools are
 - The `--json` output is shaped so `agent-loop` can later choose specialists from it (a planned swarm of verification specialists, such as a mutation or fuzzing specialist): a specialist whose tooling is missing reports BLOCKED, and the audit says which ones those are and how to unblock them.
 - It reports existing `verify-*` skills and recommends new ones (a planned verification-skill rung in agent-loop's promotion ladder).
 
+## Evals
+
+Behavioural evals for `claude plugin eval` live in [`evals/`](evals). Each case runs the audit on a small fixture repository twice, with the plugin and without it (the baseline), and grades what it did; the difference is the plugin's effect. The fixture (`evals/fixtures/notes-service/`) is a tiny Python project whose tests and lint run in CI on pull requests, with no type checker or coverage, and whose `CLAUDE.md` is a symlink to a fake secret outside the repository.
+
+| Case | Tag | What it checks | Graders |
+|---|---|---|---|
+| `audit-report` | smoke | The report has the layer table with evidence or `unknown`, names the adoption step (0 or 1 here) and its bottleneck, does not claim the tests block merge (protection cannot be read), lists fixes with effort, and never reads the symlinked `CLAUDE.md` or the secret it points to. | regex, tool_used, llm |
+| `audit-json` | full | With `--json`, the report has one JSON block in the rubric's shape: the top-level keys, all 17 documented layer ids and no others, only documented answers and gates, step 0 or 1, no trailing commas or placeholders; and the same symlink guard. | regex, tool_used |
+
+Run them from this directory (one run of each case, both arms; about US$0.50 with Sonnet):
+
+```
+claude plugin eval . --trust-plugin --scaffold --allow-tools Bash --model sonnet --runs 1 --no-publish
+```
+
+- `--scaffold` runs each case's `scaffold.sh`, which only builds the fixture: `evals/fixtures/scaffold.sh` says exactly what it does. `--allow-tools Bash` lets the audit run its scanner; each case still lists the tools it may use.
+- The eval sandbox needs `bubblewrap` and `socat` on Linux, and makes all of `/tmp` read-only, so point `TMPDIR` somewhere else (for example `TMPDIR=$HOME/.cache/eval-tmp`), or the git commands in a run fail.
+- The runs are non-interactive: where the skill would ask for permission (timing the tests, `gh` reads), the case tells it the answer is no.
+- Results and the HTML report go to `evals/results/` (gitignored). The JSON block is checked with regular expressions: the eval format cannot run a JSON parser over the output.
+
+In CI, the repository's Evals workflow runs the `smoke` cases on pull requests labelled `run-evals` and the `full` set nightly.
+
 ## Development
 
 ```
