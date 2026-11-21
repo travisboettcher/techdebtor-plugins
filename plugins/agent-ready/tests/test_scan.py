@@ -650,7 +650,7 @@ def test_capabilities_in_scripts_called_from_ci(repo):
 
 
 def test_generator_configs_are_generic(repo):
-    result = scan(repo({"buf.gen.yaml": "version: v2\n", "sqlc.yaml": "version: 2\n", "x.hll": "service x {}\n"}))
+    result = scan(repo({"buf.gen.yaml": "version: v2\n", "sqlc.yaml": "version: 2\n", "x.mydsl": "service x {}\n"}))
     assert result["codegen"]["generator_configs"] == ["buf.gen.yaml", "sqlc.yaml"]
 
 
