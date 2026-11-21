@@ -28,9 +28,10 @@ def test_ladder_tables_list_every_rung_in_order(path):
 
 
 def test_ledger_example_lists_every_rung():
+    # Every ladder rung, plus `selection`: a ledger entry for a change to the selection table.
     text = (PLUGIN / "docs/DESIGN.md").read_text()
     (comment,) = re.findall(r"rung: \w+ +# (.*)$", text, re.M)
-    assert comment.split(" | ") == LADDER
+    assert comment.split(" | ") == LADDER + ["selection"]
 
 
 def test_manifest_descriptions_name_the_check_rung():

@@ -1,0 +1,110 @@
+# The default selection table (docs/DESIGN.md, "Specialists").
+# The lead tags each plan unit with the risk tags below; the coordinators
+# (agent-loop:tester, agent-loop:reviewer) run the baseline plus the
+# specialists the tags select. A project overrides this in
+# .claude/agent-loop/selection.yml (same shape; see DESIGN.md). Read by the
+# coordinators, the lead (tag names and meanings) and scripts/retro_mine.py.
+schema: 1
+baseline: [test-runner, correctness-reviewer]   # always run; an override cannot remove them
+budget:                       # per lead run, for heavy specialists beyond the baseline
+  heavy_runs: 6               # heavy specialist runs, all rounds together
+  heavy_minutes: 60           # their wall time, all rounds together
+specialists:                  # pool: tester (verification) | reviewer (review); weight: light runs in parallel, heavy one at a time
+  test-runner:
+    pool: tester
+    weight: heavy
+    categories: [behaviour-regression, unmet-criterion]
+  measurement-auditor:
+    pool: tester
+    weight: heavy
+    categories: [measurement-attribution-leak, shared-state-false-failures, wrong-auth-identity, silent-allowlist, new-check-not-opt-in, leftover-resources, shell-portability]
+  check-runner:               # chosen when the plan names verify skills, not by a tag
+    pool: tester
+    weight: light
+    categories: []            # a verify skill's findings carry its own category
+  fuzzer:
+    pool: tester
+    weight: heavy
+    categories: [regex-performance, unhandled-input]
+  api-fuzzer:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [unhandled-input, spec-violation]
+  mutation-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [weak-test]
+  system-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [interface-mismatch, behaviour-regression]
+  perf-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [performance-regression, regex-performance]
+  security-scanner:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [insecure-code, vulnerable-dependency]
+  correctness-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [logic-error, unmet-criterion, scope-mismatch, generated-file-hand-edit, weak-test]
+  security-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [insecure-code, redaction-gap, unhandled-input]
+  permissions-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [over-broad-pre-approval]
+  api-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [breaking-change, interface-mismatch]
+  docs-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [doc-drift, contract-self-contradiction]
+tags:
+  untrusted-input:
+    when: "Parses, decodes or acts on input from outside the trust boundary: requests, files, arguments, messages, environment."
+    run: [fuzzer, security-reviewer]
+  security-sensitive:
+    when: "Auth, sessions, secrets, crypto, redaction or sanitising, path handling: code an attacker would target."
+    run: [security-scanner, mutation-tester, security-reviewer]
+  permissions:
+    when: "Changes who or what may do something: allowed-tools, agent tools, settings permissions or hooks, CI tokens, roles, access rules."
+    run: [permissions-reviewer]
+  data-migration:
+    when: "Changes stored data or its format: migrations, schema changes, backfills, formats older code still reads."
+    run: [system-tester, mutation-tester, api-reviewer]
+  public-api:
+    when: "Changes an interface others depend on: a public function, HTTP API, CLI, events, a contract between components."
+    run: [api-fuzzer, api-reviewer, docs-reviewer]
+  concurrency:
+    when: "Threads, async, locks, queues, retries, or state shared by more than one worker."
+    run: [system-tester]
+  perf-sensitive:
+    when: "Hot paths, loops over unbounded data, queries, caching, or a stated latency or size limit."
+    run: [perf-tester]
+  ui:
+    when: "What a user sees or does in a browser or app."
+    run: [system-tester]
+  test-infra:
+    when: "Tests, fixtures, test config or runners, coverage or other measurement, CI test jobs."
+    run: [measurement-auditor]
+  regex:
+    when: "Adds or changes a regular expression or another backtracking matcher."
+    run: [fuzzer]
+  dependencies:
+    when: "Adds, removes or upgrades a dependency or lockfile."
+    run: [security-scanner]
+  user-facing:
+    when: "Changes behaviour something else describes: options, defaults, output, errors, documented steps."
+    run: [docs-reviewer]
