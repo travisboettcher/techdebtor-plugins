@@ -51,6 +51,6 @@ sys.exit(0)
 
 - Standard library only, no network, well under a second.
 - Fail open on its own errors (exit 0); fail closed only on the exact mistake.
-- The stderr message says what to do instead, not just what is wrong.
+- The stderr message says what to do instead, not only what is wrong.
 - Narrow `matcher` to the tools involved.
 - Test it before committing: pipe a sample input that should be blocked and one that should pass, and check the exit codes. Include those two cases in the commit message.

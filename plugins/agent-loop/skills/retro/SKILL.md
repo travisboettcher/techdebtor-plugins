@@ -18,7 +18,7 @@ allowed-tools:
 
 # Retro
 
-Close the loop: find what keeps going wrong, turn the recurring part into the cheapest rule that stops it, and check that earlier rules actually worked. The contract (run record and ledger formats, the ladder, verdicts, scope, the human gate) is `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md`. Read it before anything else and follow it exactly. The model does not learn; the scaffolding does, and a rule only counts as an improvement once a later retro shows its category stopped recurring.
+Close the loop: find what keeps going wrong, turn the recurring part into the cheapest rule that stops it, and check that earlier rules worked. The contract (run record and ledger formats, the ladder, verdicts, scope, the human gate) is `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md`. Read it before anything else and follow it exactly. The model does not learn; the scaffolding does, and a rule only counts as an improvement once a later retro shows its category stopped recurring.
 
 Arguments given: `$ARGUMENTS`
 
@@ -28,7 +28,7 @@ Arguments given: `$ARGUMENTS`
 ## Guardrails (apply throughout)
 
 - **No raw transcript text anywhere.** Evidence in proposals, commits, ledger entries and records is either paraphrased or copied from the miner's already-redacted `excerpt` / `preceding_action` fields. Evidence in `framework-proposals.md` is paraphrased only: never copy an `excerpt` there, since it is meant to leave the project. Never open `~/.claude/projects` transcripts directly.
-- **The permission prompts are the human gate.** This skill pre-approves only reading: files and a short list of read-only git commands (`git log`, `git diff` and `git show` are not on it, since `--output=<file>` makes them write; they ask). The miner is not pre-approved either: a pattern for it would also match a script of the same name planted in any cloned repo, so running it asks for permission once per retro. Every file write, `git worktree add`, commit or push asks the human first. Do not try to avoid those prompts (no other tools, scripts or shell tricks to write files or run git).
+- **The permission prompts are the human gate.** This skill pre-approves only reading: files and a short list of read-only git commands (`git log`, `git diff` and `git show` are not on it, since `--output=<file>` makes them write; they ask). The miner is not pre-approved either: a pattern for it would also match a script of the same name planted in any cloned repo, so running it asks for permission once per retro. Every file write, `git worktree add`, commit or push asks the human first. Do not work around those prompts (no other tools, scripts or shell tricks to write files or run git).
 - **At most ~5 proposals per retro**, ordered by recurrence x severity. Everything else is listed under "not proposed".
 - **Prefer deleting or merging rules over adding them.** A rewrite of an unclear rule beats a second rule for the same category.
 - **Never on the default branch, never pushed.** Project changes go on a `retro/YYYY-MM-DD` branch; user changes wait for an explicit yes.
@@ -52,7 +52,7 @@ Windows (`window`): the miner reads every run record in every worktree of the pr
 
 `specialists` measures the verification and review specialists from every run record with a `selection`: `selection` (the table's paths, its `retro` thresholds and any `errors` in the project's override), `by_specialist` (per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses` (findings in its own categories, in a run that chose it, that it did not report and that escaped the swarm: caught by the human, CI, a hook or the dispatcher, or in a later round), `miss_rate`, `overlap` (the same, caught by another specialist in the same round), and those counts `by_tag` for the tags that selected it), and `by_tag` (per tag: `runs` and the categories that `escaped`).
 
-Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was just caution) before counting.
+Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was only caution) before counting.
 
 ### 2. Verify every ledger rule
 
@@ -86,7 +86,7 @@ Scope:
 - `user`: the human's preferences or environment across repos (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/.claude/skills`, memory).
 - `framework`: would help anyone using these plugins (a missing review specialist check, a better lead prompt, a change to the default selection table, a new catalog category with its description, usual stage and cheapest rule).
 
-**Selection table.** From `specialists`, also consider (ranked with the rest, counting toward the five):
+**Selection table.** From `specialists`, also weigh (ranked with the rest, counting toward the five):
 - *Drop* a specialist from a tag when it ran for that tag in at least `retro.drop_after_runs` runs and found nothing there; heavy ones first, since they cost the most. A tag's `floor` cannot be dropped; high `overlap` with another specialist is a reason to prefer the drop.
 - *Add* a specialist to a tag when a category escaped (`by_tag.<tag>.escaped`) in at least `retro.add_after_escapes` runs with that tag and the specialist that owns the category (its `categories` in the table) was not chosen; or *enable* an opt-in one that owns it.
 - A specialist with low `precision` (most of its findings rejected) or a high `miss_rate` needs its brief rewritten, not a table change: a framework proposal.
