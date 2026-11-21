@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Use this agent when the lead skill has a planned step with acceptance criteria and verifiers and needs the code written or changed, or needs confirmed tester/reviewer findings fixed. Not for open-ended exploration or for deciding what to build. See "When to invoke" in the agent body.
+description: Use this agent when the lead skill needs a planned unit implemented against its criteria and failing tests, or confirmed findings fixed. Not for exploration or deciding what to build.
 model: inherit
 color: green
 tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]

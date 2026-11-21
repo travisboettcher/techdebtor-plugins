@@ -63,7 +63,7 @@ def test_catalog_names_are_unique_and_cover_the_starter_set():
 
 def test_the_scan_covers_the_docs_that_name_categories():
     docs = {str(p.relative_to(PLUGIN)) for p in shipped_docs()}
-    assert {"README.md", "docs/DESIGN.md", "docs/categories.md", "agents/reviewer.md", "agents/tester.md",
+    assert {"README.md", "docs/DESIGN.md", "docs/categories.md", "agents/permissions-reviewer.md", "agents/fuzzer.md",
             "skills/lead/SKILL.md", "skills/lead/references/run-record.md", "skills/retro/SKILL.md"} <= docs
 
 
