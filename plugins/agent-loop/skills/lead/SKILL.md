@@ -35,7 +35,7 @@ Show the plan. If the task is large or risky (touches many files, changes data f
 
 ## 3. Implement
 
-Brief the `lead:implementer` agent with: the step(s), the acceptance criteria, the verifiers, the files involved, and the rules brief. Do not include your own speculation about how to write it beyond what the plan states.
+Brief the `agent-loop:implementer` agent with: the step(s), the acceptance criteria, the verifiers, the files involved, and the rules brief. Do not include your own speculation about how to write it beyond what the plan states.
 
 - Run implementers in parallel only for steps that are independent and touch non-overlapping files. Otherwise run them one at a time.
 - Never run heavy jobs in parallel: full builds, full test suites, mutation testing, fuzzing, large dependency installs. Tell every agent you brief that heavy jobs run one at a time.
@@ -43,21 +43,21 @@ Brief the `lead:implementer` agent with: the step(s), the acceptance criteria, t
 
 ## 4. Test
 
-Brief the `lead:tester` agent with: the acceptance criteria, the verifiers, and the rules brief. It runs them and reports; it does not fix code.
+Brief the `agent-loop:tester` agent with: the acceptance criteria, the verifiers, and the rules brief. It runs them and reports; it does not fix code.
 
 - Every failure it reports is a finding (stage `test`, caught_by `tester`).
 - If the tester reports a verifier is missing or broken, that is a finding too.
 
 ## 5. Review
 
-Brief the `lead:reviewer` agent with only:
+Brief the `agent-loop:reviewer` agent with only:
 - the diff (`git diff` against the starting point, plus any new untracked files; tell it how to get them),
 - the acceptance criteria,
 - the rules brief.
 
 Do **not** pass the implementer's reasoning, its report, the tester's report, or your own opinion of the change. The reviewer's value is an independent read.
 
-Verify each reviewer finding yourself before acting on it (read the cited line). Drop findings you can show are wrong, and say why in the run record's `notes`. Every confirmed finding is a finding (stage `review`, caught_by `reviewer`).
+Verify each reviewer finding yourself before acting on it (read the cited line). Drop findings you can show are wrong, and list them under the run record's `rejected`, with the reason. Every confirmed finding is a finding (stage `review`, caught_by `reviewer`).
 
 ## 6. Loop
 
@@ -67,14 +67,15 @@ Stop when a round ends with all verifiers passing and no confirmed review findin
 
 ## 7. Record
 
-Always write a run record, including when the run is abandoned or stopped at the round limit. Path: `.claude/runs/YYYY-MM-DD-<slug>.yml` (today's date, a short kebab-case slug of the task; add `-2`, `-3` if the file exists).
+Always write a run record, including when the run is abandoned or stopped at the round limit. Path: `.claude/runs/YYYY-MM-DD-<slug>.yml` (today's date, a short kebab-case slug of the task; add `-2`, `-3` if the file exists). The authoritative format is `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md`; this is its shape:
 
 ```yaml
 schema: 1
 date: YYYY-MM-DD
 task: "One-line description of the task"
 repo: <basename of the git root>
-outcome: in-progress          # merged | reworked | abandoned | in-progress
+outcome: completed            # completed | merged | reworked | abandoned | in-progress
+rounds: 1                     # implement→test→review rounds run
 stages:                       # what actually ran, in order (repeat per round)
   - plan
   - implement
@@ -85,8 +86,12 @@ findings:
     category: kebab-case-category
     severity: major           # minor | major | critical
     detail: "What went wrong, in one or two sentences."
-    caught_by: reviewer       # tester | reviewer | human | ci | self
+    caught_by: reviewer       # tester | reviewer | human | ci | hook | self
     fixed: true
+rejected:                     # optional: reported findings you showed were wrong
+  - stage: review
+    category: kebab-case-category
+    reason: "Why it was wrong."
 notes: "Optional free text."
 ```
 
@@ -94,7 +99,7 @@ Rules for the record:
 - A finding is something that went wrong and was caught. Not a summary of the work. A clean run has `findings: []`.
 - Record every finding from every stage and round: tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief). Record your own mistakes with `stage: plan` and `caught_by: self` (or whoever caught them). Do not soften or omit them.
 - Reuse an existing category from step 1 when one fits. Invent a new kebab-case category only when none does; name the kind of mistake, not the incident (`missing-input-validation`, not `null-in-parse-config`).
-- `outcome`: `in-progress` unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.
+- `outcome`: `completed` when the run finished, `in-progress` only if it stopped part-way, unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.
 - Never put secrets, tokens, private hostnames or personal data in a record.
 - If `.claude/runs/` did not exist before this run, tell the human and suggest adding `.claude/runs/` to `.gitignore`. Do not edit `.gitignore` unless they say so.
 

@@ -17,7 +17,7 @@ allowed-tools:
 
 # Retro
 
-Close the loop: find what keeps going wrong, turn the recurring part into the cheapest rule that stops it, and check that earlier rules actually worked. The contract (run record and ledger formats, the ladder, verdicts, scope, the human gate) is the marketplace's `docs/DESIGN.md`; the formats are copied in `${CLAUDE_SKILL_DIR}/references/formats.md`. Follow them exactly. The model does not learn; the scaffolding does, and a rule only counts as an improvement once a later retro shows its category stopped recurring.
+Close the loop: find what keeps going wrong, turn the recurring part into the cheapest rule that stops it, and check that earlier rules actually worked. The contract (run record and ledger formats, the ladder, verdicts, scope, the human gate) is `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md`. Read it before anything else and follow it exactly. The model does not learn; the scaffolding does, and a rule only counts as an improvement once a later retro shows its category stopped recurring.
 
 Arguments given: `$ARGUMENTS`
 
@@ -107,4 +107,4 @@ Delete `$OUT` at the end (`rm -f /tmp/retro-*.json`).
 
 ## Recording a session (`--record`)
 
-Write `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` for the current session in the run-record shape from `${CLAUDE_SKILL_DIR}/references/formats.md` (`schema: 1`, `date`, `task`, `repo`, `outcome`, `stages`, `findings`, `notes`). Findings are only things that went wrong and were caught (by a stage, a hook, CI or the human), each with a reused category where one fits. No secrets, private hostnames, personal data or quotes from the conversation; paraphrase. Show the file to the human after writing it. If `.claude/runs/` is not gitignored and the project has not decided, mention that committing or ignoring `.claude/runs/` is the project's choice.
+Write `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` for the current session in the run-record shape from `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md` (`schema: 1`, `date`, `task`, `repo`, `outcome`, `rounds`, `stages`, `findings`, optional `rejected`, `notes`). Findings are only things that went wrong and were caught (by a stage, a hook, CI or the human), each with a reused category where one fits. No secrets, private hostnames, personal data or quotes from the conversation; paraphrase. Show the file to the human after writing it. If `.claude/runs/` is not gitignored and the project has not decided, mention that committing or ignoring `.claude/runs/` is the project's choice.

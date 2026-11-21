@@ -1,6 +1,6 @@
 # Design
 
-Two plugins share two file formats. This document is the contract between them; change it before changing either plugin.
+The `agent-loop` plugin has two halves, the `lead` skill (with its implementer, tester and reviewer agents) and the `retro` skill (with `scripts/retro_mine.py`). They share two file formats. This document is the contract between them and ships with the plugin (`${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md`); change it before changing either half.
 
 ## The loop
 
@@ -19,7 +19,7 @@ The model does not learn; the scaffolding around it does. A rule is only an impr
 
 ## Where state lives
 
-Nothing project-specific ever lives in this marketplace.
+Nothing project-specific ever lives in the plugin.
 
 | What | Project scope | User scope |
 |---|---|---|
@@ -39,8 +39,9 @@ schema: 1
 date: 2026-11-21
 task: "One-line description of the task"
 repo: name-of-repo            # basename of the git root
-outcome: merged               # merged | reworked | abandoned | in-progress
-stages:                       # what ran, in order
+outcome: completed            # completed | merged | reworked | abandoned | in-progress
+rounds: 1                     # implement→test→review rounds run
+stages:                       # what ran, in order; repeated stages repeat (implement, test, review, implement, ...)
   - plan
   - implement
   - test
@@ -50,14 +51,21 @@ findings:                     # anything a later stage (or the human) had to cat
     category: generated-file-hand-edit   # kebab-case; reuse existing categories (see ledger) before inventing one
     severity: major           # minor | major | critical
     detail: "Edited the generated compose file instead of its source."
-    caught_by: reviewer       # which stage noticed: tester | reviewer | human | ci | self
+    caught_by: reviewer       # which stage noticed: tester | reviewer | human | ci | hook | self
     fixed: true
+rejected:                     # optional: findings a stage reported that turned out to be wrong
+  - stage: review
+    category: missing-null-check
+    reason: "The value is validated by the caller at the cited line."
 notes: "Free text, optional."
 ```
 
 Rules:
 - `category` is the unit of measurement. Prefer an existing category from the ledger or earlier records; a new one is fine when nothing fits.
-- A finding is something that went wrong and was caught, not a summary of the work.
+- A finding is something that went wrong and was caught by a *later* stage, the human, CI or a hook, not a summary of the work. Mistakes an agent catches in its own work before reporting are not findings.
+- `stage` is where the mistake was made; `caught_by` is who noticed. The lead's own mistakes (a wrong plan, a bad brief) are `stage: plan`; `caught_by: self` means the stage that made the mistake noticed it later in the run.
+- `outcome` is `completed` when the run finished and is waiting on the human, and `in-progress` only when it stopped part-way. The human's decision (`merged`, `reworked`, `abandoned`) replaces it when known.
+- `rejected` records false positives, so a retro can measure how often a stage (usually the reviewer) is wrong; a stage that is often wrong is itself a candidate for a rule.
 - Never put secrets, tokens, hostnames of private systems, or personal data in a record.
 
 ## Rules ledger (`rules-ledger.yml`)
@@ -90,10 +98,12 @@ rules:
 | `hook` | Recurs after an `instruction` exists, and can be checked mechanically: a hook or CI check that blocks it. |
 | `test` | The mistake is about behaviour of the code, not process: a test or eval that fails on it. |
 
-Verification on each retro, for every ledger rule:
+Verification on each retro, for every ledger rule. Occurrences are counted strictly after `added` (a record dated the same day as the rule predates it), from run-record findings plus transcript signals the retro assigned to the category:
 - `working`: the category has not recurred since the rule was added.
 - `recurring`: it has. Propose the next rung up (or a rewrite, if the rule is unclear).
-- `dormant`: no occurrence and no relevant work for 90 days. Propose retiring it, so instructions don't accumulate forever.
+- `dormant`: the rule is at least 90 days old and no work in that time touched what it governs, so there was nothing for it to prevent. The miner reports `days_since_added` and `records_since_added`; the retro judges relevance. Propose retiring it, so instructions don't accumulate forever.
+
+Transcript signals arrive uncategorized; the retro assigns each a category (reusing existing ones) or discards it as a false positive before counting. A user ledger is checked against the run records of whichever project the retro runs in.
 
 ## Scope classification
 
@@ -108,4 +118,4 @@ Each proposal is classified before it is written:
 
 ## Privacy
 
-Transcripts contain secrets and private details. The miner redacts anything secret-shaped (tokens, keys, passwords, `KEY=value` with long values, bearer headers, private IPs and emails) before any text leaves it, and keeps excerpts short. Nothing from a transcript is ever sent anywhere by these plugins.
+Transcripts contain secrets and private details. The miner redacts anything secret-shaped (tokens, keys, passwords, `KEY=value` with long values, bearer headers, IP addresses, emails, and the local user name) before any text leaves it, and keeps excerpts short. Nothing from a transcript is ever sent anywhere by these plugins.

@@ -1,21 +1,15 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "agent-loops",
-  "description": "An agent graph for development (tech lead, implementer, tester, reviewer) and the feedback loop that makes it improve itself.",
+  "name": "techdebtor",
+  "description": "Claude Code plugins from techdebtor.io.",
   "owner": {
-    "name": "Travis Boettcher"
+    "name": "techdebtor"
   },
   "plugins": [
     {
-      "name": "lead",
-      "description": "Tech-lead orchestration: break a task down, then run implementer, tester and independent reviewer agents, and record what each stage caught.",
-      "source": "./plugins/lead",
-      "category": "development"
-    },
-    {
-      "name": "retro",
-      "description": "The self-improvement loop: mine run records and session transcripts for recurring mistakes, promote fixes up a ladder (note, instruction, hook, test), and check that each rule actually worked.",
-      "source": "./plugins/retro",
+      "name": "agent-loop",
+      "description": "An agent graph that improves itself: /lead plans a task and runs implementer, tester and independent reviewer agents, recording what each stage caught; /retro mines those records and your session transcripts for recurring mistakes, promotes fixes up a ladder (instruction, hook, test) behind a human gate, and checks that each rule actually worked.",
+      "source": "./plugins/agent-loop",
       "category": "development"
     }
   ]

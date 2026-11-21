@@ -1,10 +1,45 @@
-# retro
+# agent-loop
 
-The self-improvement loop for Claude Code. `/retro` mines recent run records and session transcripts for the places where something went wrong (you corrected the agent, interrupted it, denied a tool call, or a later stage caught a mistake), finds the categories that keep recurring, and proposes the cheapest rule that would stop each one. On the next retro it checks whether those rules worked.
+An agent graph for development that improves itself.
 
-The model does not learn; the scaffolding around it does. A rule only counts as an improvement once a later retro shows its category stopped recurring.
+- **`/agent-loop:lead <task>`** is a tech lead: it plans the task, runs implementer, tester and independent reviewer agents in a bounded loop, and writes a run record of every mistake any stage caught.
+- **`/agent-loop:retro`** closes the loop: it mines those run records and your session transcripts for what keeps going wrong, proposes the cheapest rule that would stop each recurring mistake, and on the next retro checks whether each rule worked.
 
-## The loop
+The model does not learn; the scaffolding around it does. A rule only counts as an improvement once a later retro shows its category stopped recurring. The contract between the two halves (formats, ladder, verdicts, scope, privacy) is [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## Install
+
+```
+/plugin marketplace add travisboettcher/techdebtor-plugins
+/plugin install agent-loop@techdebtor
+```
+
+## Use
+
+```
+/agent-loop:lead add a --dry-run flag to the export command
+/agent-loop:retro               # last 30 days
+/agent-loop:retro 14d           # another window (14d, 2w, 12h, or an ISO date)
+/agent-loop:retro --record      # write a run record for the current session
+```
+
+`lead` is user-invoked only (it launches several agents); give a round limit in the task if 3 is wrong. The agents (`agent-loop:implementer`, `agent-loop:tester`, `agent-loop:reviewer`) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
+
+## How it works
+
+### `/agent-loop:lead`: the graph
+
+1. **Understand.** Reads `CLAUDE.md` and, if present, `.claude/rules-ledger.yml` and `~/.claude/rules-ledger.yml`. Every applicable rule goes into a rules brief that every agent receives.
+2. **Plan.** Steps, each with acceptance criteria and a verifier (a test, command or check). Large or risky tasks wait for your approval.
+3. **Implement.** The `implementer` agent makes the change and runs the verifiers. Parallel only for independent, non-overlapping steps; heavy jobs (full builds, mutation testing) never run in parallel.
+4. **Test.** The `tester` agent runs the project's real verifiers and reports pass/fail with output. It does not fix code.
+5. **Review.** The `reviewer` agent gets the diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
+6. **Loop.** Implement, test, review until clean, or 3 rounds, then stop and report.
+7. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`.
+
+It never commits, pushes or opens pull requests unless you ask.
+
+### `/agent-loop:retro`: the feedback loop
 
 ```
 lead runs ──► run records ──┐
@@ -22,6 +57,34 @@ ordinary sessions ──► transcripts ──┤
 3. **Cluster** signals and findings into categories, reusing existing ones, and count recurrences. One-offs that are not critical stay notes.
 4. **Propose** at most about five changes, highest recurrence x severity first, preferring to delete or merge rules over adding them.
 5. **Gate.** Nothing lands without you (see below).
+
+`retro` works without `lead`: transcripts alone give it corrections, interrupts, denials and reverted edits. It is better with run records, because they carry categorised findings from each stage and ledger verification counts those exactly.
+
+## Run records
+
+Every run, including abandoned ones, ends with a YAML record in `.claude/runs/` in the format defined in [`docs/DESIGN.md`](docs/DESIGN.md):
+
+```yaml
+schema: 1
+date: 2026-11-21
+task: "Add a --dry-run flag to the export command"
+repo: my-project
+outcome: completed
+rounds: 2
+stages: [plan, implement, test, review, implement, test, review]
+findings:
+  - stage: review
+    category: missing-error-handling
+    severity: major
+    detail: "Dry run still opened the output file for writing."
+    caught_by: reviewer
+    fixed: true
+notes: ""
+```
+
+A finding is something that went wrong and was caught, by any stage, by you, or by the lead itself. Categories are reused from earlier records and the rules ledger so they can be counted across runs. Records hold no secrets or personal data.
+
+On first use the lead suggests adding `.claude/runs/` to `.gitignore`; it does not change it without asking. Commit the records instead if you want them shared.
 
 ## The promotion ladder
 
@@ -60,31 +123,10 @@ Transcripts contain secrets and private details, so the miner treats them as hos
 - The skill never reads transcripts directly and never copies raw transcript text into a proposal, commit, ledger or record: evidence is paraphrased or taken from the miner's redacted output.
 - Nothing is sent anywhere. The plugin makes no network calls.
 
-## Install
-
-```
-/plugin marketplace add travisboettcher/agent-loops
-/plugin install retro@agent-loops
-```
-
-## Use
-
-```
-/retro               # last 30 days
-/retro 14d           # another window (14d, 2w, 12h, or an ISO date)
-/retro --record      # write a run record for the current session
-```
-
-Run it weekly, or after a burst of work. A retro over a quiet week is cheap and still re-verifies the ledger.
-
-## With and without `lead`
-
-`retro` works on its own: transcripts alone give it corrections, interrupts, denials and reverted edits. It is better with the `lead` plugin (or hand-written `/retro --record` records), because run records carry categorised findings from each stage, and ledger verification counts those categories exactly.
-
 ## Development
 
 ```
-cd plugins/retro
+cd plugins/agent-loop
 python3 -m venv .venv && .venv/bin/pip install pytest
 .venv/bin/python -m pytest
 ```
