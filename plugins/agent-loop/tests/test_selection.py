@@ -558,3 +558,28 @@ def test_the_lead_has_a_fast_path_and_ignores_report_only_when_halting():
     assert "verification-rules.md" in fast and "review-rules.md" in fast and "`files` signal" in fast
     assert "When the review starts (coordinator or fast path)" in text
     assert "all blocking checks passing" in text and "blocking check BLOCKED" in text
+
+
+def test_the_plan_gives_each_criterion_a_target_level_and_the_lead_passes_it_on():
+    lead = (PLUGIN / "skills/lead/SKILL.md").read_text()
+    plan = lead.split("## 3. Plan", 1)[1].split("\n## ", 1)[0]
+    assert "**Test plan**" in plan and "target level" in plan and '"Test levels"' in plan
+    build = lead.split("## 4. Build each unit", 1)[1].split("\n## ", 1)[0]
+    assert "target level" in build
+    test = lead.split("## 5. Test", 1)[1].split("\n## ", 1)[0]
+    assert "target levels" in test
+    shape = (PLUGIN / "skills/lead/references/run-record.md").read_text()
+    assert "test_plan:" in shape and "level:" in shape and "should_have_caught_at" in shape
+    assert "target level" in (PLUGIN / "skills/lead/references/delegated.md").read_text()
+    writer = (PLUGIN / "agents/test-writer.md").read_text()
+    assert "target level" in writer and "(level <level>)" in writer
+
+
+def test_the_documented_test_plan_and_level_attribution_parse():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    example = text.split("## Run record", 1)[1].split("```yaml\n", 1)[1].split("```", 1)[0]
+    rec = parse_yaml_lite(example)
+    (entry,) = rec["plan"]["test_plan"]
+    assert set(entry) == {"criterion", "test", "level", "unit"} and entry["unit"] in rec["plan"]["units"]
+    assert entry["level"] in ("unit", "component", "contract", "integration", "system")
+    assert [f.get("should_have_caught_at") for f in rec["findings"]] == [None, "contract"]
