@@ -9,7 +9,9 @@
 - Lead decisions: units run one at a time (parallelism belongs to a dispatcher); a local work branch, created with `--no-track`, whenever the run starts on the default branch, and pushes only as `git push -u origin <slug>`; review-round fixes are separate commits naming the unit; one rule for counting rounds, and at most two test-writer retries per unit before asking.
 - Tester: a baseline failure with the same signature is reported as PRE-EXISTING; failing differently is a new failure.
 - Run records: optional `plan` (the plan record, or a path to it) and `baseline_failures` (each a test ID with a one-line failure signature; bare IDs stay valid); new stages `preflight`, `test-write`, `gate`; `stage: test-write` and `caught_by: test-writer`. Older records stay valid.
-- DESIGN.md: the lead's process, the test-writer's isolation limits, and starter categories `stale-trunk`, `generated-artifact-not-regenerated`, `new-file-matches-generator-glob`, `branch-over-budget`.
+- DESIGN.md: the lead's process and the test-writer's isolation limits.
+- Category catalog `docs/categories.md`: process, generated-file, measurement, environment, security and contract categories, each with a description, the stage where it is usually made and the cheapest known rule. The lead and the retro reuse its names before inventing new ones; the retro may propose additions as framework-scope proposals.
+- Gates for `skipped-independent-review` and `skipped-plan-approval`: the new `scripts/record_gate.py` (standard library, read-only) fails a run record without a review after the last change, without `plan_approved`, with `n/a` when approval was required, or with commits authored before the approval. The lead runs it before reporting done. Run records gain `plan_approved` (a date-time, or `n/a`); older records stay valid.
 
 ## 0.1.1
 
