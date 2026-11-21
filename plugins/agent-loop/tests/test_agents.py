@@ -187,7 +187,8 @@ def test_level_aware_specialists_read_the_test_levels_reference():
     # One shared reference holds the classification and the per-level report; specialists point to it.
     text = LEVELS_REF.read_text()
     for word in ("`unit`", "`component`", "`contract`", "`integration`", "`service`", "`system`", "`unclassified`",
-                 "Testcontainers", "GenericContainer", "`unverified-stub`",
+                 "Testcontainers", "GenericContainer", "`unverified-stub`", "system > service",
+                 "other first-party services",
                  "autouse=True", "real dependencies", "convention", "docs/DESIGN.md", "`tmp_path`", "subprocess",
                  "import", "test runner's per-level report"):
         assert word in text, word
@@ -205,7 +206,7 @@ def test_the_level_specialists_jobs():
         assert word in strategist, word
     calls = {tag for tag, row in TABLE["tags"].items()
              if {"contract-tester", "integration-tester", "service-tester", "system-tester"} & set(row["run"])}
-    calls -= {"user-facing"}
+    calls -= {"user-facing", "test-stubs"}
     assert calls and all(f"`{tag}`" in strategist for tag in calls)  # the tags that call for a level
     _, contract = agent("contract-tester")
     assert "`missing-contract-test`" in contract and "BLOCKED" in contract and "heavy_lock.py" in contract
@@ -217,7 +218,9 @@ def test_the_level_specialists_jobs():
     _, integration = agent("integration-tester")
     assert "roll" in integration and "`shared-state-false-failures`" in integration and "BLOCKED" in integration
     _, service = agent("service-tester")
-    for word in ("heavy_lock.py", "BLOCKED", "`unverified-stub`", "image", "remove", "network interface"):
+    for word in ("heavy_lock.py", "BLOCKED", "`unverified-stub`", "image", "remove", "network interface",
+                 "docker login", "unique local tag", "images, containers, networks and volumes"):
         assert word in service, word
+    assert "`unverified-stub`" in contract and "stub" in contract
     _, system = agent("system-tester")
     assert "contract tests" not in system  # the contract tester owns them now

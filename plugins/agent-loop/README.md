@@ -89,15 +89,15 @@ The retro measures each specialist (precision, misses that escaped the swarm, an
 The pool reasons about test levels, not just "the test suite": prove each behaviour at the lowest level that can prove it, and add higher levels only for what lower ones cannot see. A test's level comes from what it really depends on, not its markers:
 
 ```
-        system        the deployed whole through real user paths: fewest, slowest
-        service       the packaged image, out of process, through its real port; stubs from contracts
+        system        the whole deployed system, several real services, through user paths: fewest
+        service       one service's packaged image, out of process, through its real port; stubs from contracts
       integration     one adapter against a real collaborator (database, queue, service)
        contract       two components agree on the interface between them, at every boundary
        component      one module in process, through its public interface, boundaries faked
          unit         pure logic: many and fast, the only level mutation testing reaches well
 ```
 
-Each criterion in the plan gets a target level, and the test-writer writes at it. The test runner reports each level apart; `public-api` adds the contract tester (as a floor), real collaborators (`io-boundary`, `data-migration`, `concurrency`) the integration tester, packaging and startup (`deployable`) the service tester, user-facing changes the system tester where the project enables it. The test strategist, read-only, checks each criterion's level and the levels the tags call for, and flags what blocks: logic tested only high up (`wrong-test-level`), an interface the change touches without a contract test (`missing-contract-test`), a criterion with no test at its planned level (`missing-test-level`), a hand-written stub with no contract behind it (`unverified-stub`). The pyramid's shape (count and run time per level, at the base and now) belongs to the whole suite, so an ice-cream cone (`inverted-pyramid`) and levels the tags merely suggest are report-only. A finding that escaped records the level that should have caught it, and the retro proposes tests at a level where escapes repeat. The definitions are in [`docs/DESIGN.md`](docs/DESIGN.md) ("Test levels").
+Each criterion in the plan gets a target level, and the test-writer writes at it. The test runner reports each level apart; `public-api` adds the contract tester (as a floor), real collaborators (`io-boundary`, `data-migration`, `concurrency`) the integration tester, packaging and startup in a repository that builds an image (`deployable`) the service tester, a changed stub of another service (`test-stubs`) the contract tester, which blocks a hand-written stub with no contract behind it (`unverified-stub`), user-facing changes the system tester where the project enables it. The test strategist, read-only, checks each criterion's level and the levels the tags call for, and flags what blocks: logic tested only high up (`wrong-test-level`), an interface the change touches without a contract test (`missing-contract-test`), a criterion with no test at its planned level (`missing-test-level`). The pyramid's shape (count and run time per level, at the base and now) belongs to the whole suite, so an ice-cream cone (`inverted-pyramid`) and levels the tags merely suggest are report-only. A finding that escaped records the level that should have caught it, and the retro proposes tests at a level where escapes repeat. The definitions are in [`docs/DESIGN.md`](docs/DESIGN.md) ("Test levels").
 
 ### Dispatcher
 

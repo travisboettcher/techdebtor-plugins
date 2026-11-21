@@ -97,11 +97,12 @@ def test_risk_tags_call_for_test_levels():
     t = default()
     tags, specs = t["tags"], t["specialists"]
     calls = {lvl: {tag for tag, row in tags.items() if name in row["run"]} for lvl, name in LEVEL_SPECIALISTS.items()}
-    assert calls == {"contract": {"public-api"}, "integration": {"io-boundary", "data-migration", "concurrency"},
+    assert calls == {"contract": {"public-api", "test-stubs"}, "integration": {"io-boundary", "data-migration", "concurrency"},
                      "service": {"deployable"}, "system": {"ui", "user-facing", "data-migration", "concurrency"}}
     strategist = {tag for tag, row in tags.items() if "test-strategist" in row["run"]}
     # user-facing text and defaults are proved at unit or component level: the strategist is not for it.
-    assert strategist == set().union(*calls.values()) - {"user-facing"} | {"test-infra", "test-changes"}
+    # test-stubs is about a stub's provenance, not a missing level.
+    assert strategist == set().union(*calls.values()) - {"user-facing", "test-stubs"} | {"test-infra", "test-changes"}
     assert tags["test-changes"]["files"] and tags["public-api"]["files"]
     for name in ("test-strategist", "contract-tester"):
         assert specs[name]["weight"] == "light" and not specs[name].get("opt_in"), name
@@ -132,6 +133,38 @@ def test_shape_findings_are_report_only_and_suggested_levels_never_block():
     assert "marks `report_only: true`" in tester
     rules = (PLUGIN / "docs/specialists/verification-rules.md").read_text()
     assert "report_only: true" in rules
+
+
+def test_design_shows_each_tags_when_and_files_signal_as_the_data_file_says():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    table = text.split("### The selection table", 1)[1].split("\n### ", 1)[0]
+    shown = dict(re.findall(r"^\| `([a-z-]+)` \| ([^|]+) \|", table, re.M))
+    tags = default()["tags"]
+    assert {t: w.strip() for t, w in shown.items()} == {t: row["when"] for t, row in tags.items()}
+    signals = text.split("### Risk tags and the baseline", 1)[1].split("\n### ", 1)[0]
+    for tag in ("deployable", "test-stubs"):
+        assert f"`{tag}`: {tags[tag]['files'].rstrip('.')}" in signals, tag
+
+
+def test_deployable_fires_only_for_a_repository_that_builds_an_image():
+    # A pyproject, .vale.ini or route-handler edit in a repository without a Dockerfile stays on the fast
+    # path; a Dockerfile edit selects the tag.
+    row = default()["tags"]["deployable"]
+    for text in (row["when"], row["files"]):
+        assert "Dockerfile" in text and "Containerfile" in text and "builds" in text, text
+        assert "configuration" not in text and "HTTP" not in text and "messaging" not in text, text
+    assert "health" in row["files"] and "migrations" in row["files"] and ".dockerignore" in row["files"]
+
+
+def test_the_contract_tester_owns_stubs_at_every_level():
+    t = default()
+    assert "unverified-stub" in t["specialists"]["contract-tester"]["categories"]
+    row = t["tags"]["test-stubs"]
+    assert row["run"] == ["contract-tester"] and "WireMock" in row["files"] and "fake-server" in row["files"]
+    tester = (PLUGIN / "agents/tester.md").read_text()
+    assert "charged against" in tester and "`contract-tester`" in tester
+    design = (PLUGIN / "docs/DESIGN.md").read_text()
+    assert "charged against the budget" in design
 
 
 def test_design_level_table_matches_the_data_file():
