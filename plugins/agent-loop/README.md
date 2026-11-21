@@ -2,7 +2,7 @@
 
 An agent graph for development that improves itself.
 
-- **`/agent-loop:lead <task>`** is a tech lead: it plans the task, runs implementer, tester and independent reviewer agents in a bounded loop, and writes a run record of every mistake any stage caught.
+- **`/agent-loop:lead <task>`** is a tech lead: it preflights the repo, plans the task as small units with testable criteria, runs test-writer, implementer, tester and independent reviewer agents in a bounded loop, gates the result against a baseline, and writes a run record of every mistake any stage caught.
 - **`/agent-loop:retro`** closes the loop: it mines those run records and your session transcripts for what keeps going wrong, proposes the cheapest rule that would stop each recurring mistake, and on the next retro checks whether each rule worked.
 
 The model does not learn; the scaffolding around it does. A rule only counts as an improvement once a later retro shows its category stopped recurring. The contract between the two halves (formats, ladder, verdicts, scope, privacy) is [`docs/DESIGN.md`](docs/DESIGN.md).
@@ -23,21 +23,23 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 /agent-loop:retro --record      # write a run record for the current session
 ```
 
-`lead` is user-invoked only (it launches several agents); give a round limit in the task if 3 is wrong. The agents (`agent-loop:implementer`, `agent-loop:tester`, `agent-loop:reviewer`) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
+`lead` is user-invoked only (it launches several agents); give a round limit in the task if 3 is wrong, and a branch budget if about 300 changed lines per unit is wrong. The agents (`agent-loop:test-writer`, `agent-loop:implementer`, `agent-loop:tester`, `agent-loop:reviewer`) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
 
 ## How it works
 
 ### `/agent-loop:lead`: the graph
 
-1. **Understand.** Reads `CLAUDE.md` and, if present, `.claude/rules-ledger.yml` and `~/.claude/rules-ledger.yml`. Every applicable rule goes into a rules brief that every agent receives.
-2. **Plan.** Steps, each with acceptance criteria and a verifier (a test, command or check). Large or risky tasks wait for your approval.
-3. **Implement.** The `implementer` agent makes the change and runs the verifiers. Parallel only for independent, non-overlapping steps; heavy jobs (full builds, mutation testing) never run in parallel.
-4. **Test.** The `tester` agent runs the project's real verifiers and reports pass/fail with output. It does not fix code.
-5. **Review.** The `reviewer` agent gets the diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
-6. **Loop.** Implement, test, review until clean, or 3 rounds, then stop and report.
-7. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`.
+1. **Understand.** Reads `CLAUDE.md` and, if present, `.claude/rules-ledger.yml` and `~/.claude/rules-ledger.yml`. Every applicable rule goes into a rules brief that every agent receives. Acceptance criteria must be testable (EARS form recommended), each naming its test or verifier; with none, it stops and asks.
+2. **Preflight.** A clean tree; when starting on the default branch, a work branch from an up-to-date `origin/<default>`; the build, lint and test commands; a baseline test run, so tests that already fail are never blamed on the change; and the project's generators and stale-artifact checks, with every new file checked against their globs.
+3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval.
+4. **Build each unit.** The `test-writer` agent writes failing tests from the criteria and interfaces, never the implementation; the `implementer` makes them pass; the lead reruns the tests itself rather than trusting the report. One commit per unit, if you asked for commits. Heavy jobs (full builds, mutation testing) never run in parallel.
+5. **Test.** The `tester` agent runs the project's real verifiers and reports pass/fail with output, separating pre-existing failures. It does not fix code.
+6. **Review.** The `reviewer` agent gets the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
+7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
+8. **Pre-push gate.** Whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
+9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record and the baseline failures.
 
-It never commits, pushes or opens pull requests unless you ask.
+It never merges and never pushes to the default branch. It commits only if you asked for commits, a branch or a pull request in the session, and pushes or opens a draft pull request only if you asked for that; otherwise it leaves the change uncommitted with the units listed.
 
 ### `/agent-loop:retro`: the feedback loop
 
