@@ -104,8 +104,8 @@ findings:                     # anything a later stage (or the human) had to cat
     fixed: true
 rejected:                     # optional: findings a stage reported that turned out to be wrong
   - stage: review             # here: the stage that reported the wrong finding
-    category: missing-null-check
-    reason: "The value is validated by the caller at the cited line."
+    category: doc-drift
+    reason: "The README section it cited was updated in the same change."
 notes: "Free text, optional."
 ```
 

@@ -77,9 +77,9 @@ stages: [plan, implement, test, review, implement, test, review]
 plan_approved: n/a            # approval was not required for this task
 findings:
   - stage: implement          # where the mistake was made; caught_by says who noticed
-    category: missing-error-handling
-    severity: major
-    detail: "Dry run still opened the output file for writing."
+    category: doc-drift
+    severity: minor
+    detail: "The --help text still described the old default."
     caught_by: reviewer
     fixed: true
 notes: ""
