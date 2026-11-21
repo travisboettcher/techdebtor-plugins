@@ -78,7 +78,8 @@ def test_the_tester_runs_heavy_specialists_one_at_a_time_within_the_budget():
     for word in ("heavy_runs", "heavy_minutes", "opt-in", "budget", "report_only", "blocking"):
         assert word in body, word
     light = {n for n, s in SPECIALISTS.items() if s["pool"] == "tester" and s["weight"] == "light"}
-    assert light == {"check-runner"} and "Light ones (`check-runner`)" in body
+    assert light == {"check-runner", "contract-tester", "test-strategist"}
+    assert "Light ones (`check-runner`, `contract-tester`)" in body and "`test-strategist` once" in body
 
 
 def test_review_specialists_are_all_light():
@@ -177,3 +178,31 @@ def test_every_agent_that_may_run_heavy_jobs_names_the_lock():
     assert "run_in_background" in implementer
     _, writer = agent("test-writer")
     assert "never the full suite, builds or heavy jobs" in writer
+
+
+LEVELS_REF = PLUGIN / "docs/specialists/test-levels.md"
+
+
+def test_level_aware_specialists_read_the_test_levels_reference():
+    # One shared reference holds the classification and the per-level report; specialists point to it.
+    text = LEVELS_REF.read_text()
+    for word in ("`unit`", "`component`", "`contract`", "`integration`", "`system`", "`unclassified`",
+                 "autouse", "real dependencies", "convention", "docs/DESIGN.md"):
+        assert word in text, word
+    for name in ("test-runner", "test-strategist", "contract-tester", "integration-tester", "measurement-auditor"):
+        assert "test-levels.md" in agent(name)[1], name
+
+
+def test_the_level_specialists_jobs():
+    _, runner = agent("test-runner")
+    assert "per level" in runner and "unit and component" in runner
+    _, strategist = agent("test-strategist")
+    for word in ("lowest level", "`wrong-test-level`", "`missing-test-level`", "`missing-contract-test`",
+                 "`inverted-pyramid`", "test runner's report", "Never run"):
+        assert word in strategist, word
+    _, contract = agent("contract-tester")
+    assert "`missing-contract-test`" in contract and "BLOCKED" in contract and "heavy_lock.py" in contract
+    _, integration = agent("integration-tester")
+    assert "roll" in integration and "`shared-state-false-failures`" in integration and "BLOCKED" in integration
+    _, system = agent("system-tester")
+    assert "contract tests" not in system  # the contract tester owns them now

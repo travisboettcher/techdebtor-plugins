@@ -74,15 +74,49 @@ def test_guard_tags_have_a_floor_and_a_file_signal():
     floors = {tag: row["floor"] for tag, row in t.items() if "floor" in row}
     assert floors == {"permissions": ["permissions-reviewer"], "regex": ["fuzzer"],
                       "test-infra": ["measurement-auditor"], "untrusted-input": ["security-reviewer"],
-                      "security-sensitive": ["security-reviewer"]}
+                      "security-sensitive": ["security-reviewer"], "public-api": ["contract-tester"]}
     assert set(floors) <= {tag for tag, row in t.items() if row.get("files")}
     assert "Not ordinary" in t["test-infra"]["when"]
 
 
 def test_new_heavy_specialists_start_opt_in():
     specs = default()["specialists"]
-    for name in ("mutation-tester", "api-fuzzer", "system-tester", "perf-tester", "security-scanner"):
+    for name in ("mutation-tester", "api-fuzzer", "integration-tester", "system-tester", "perf-tester",
+                 "security-scanner"):
         assert specs[name]["opt_in"] is True and specs[name]["weight"] == "heavy", name
+
+
+LEVEL_SPECIALISTS = {"contract": "contract-tester", "integration": "integration-tester", "system": "system-tester"}
+
+
+def test_risk_tags_call_for_test_levels():
+    # DESIGN.md "Test levels": an interface change selects the contract tester (its floor), real
+    # collaborators the integration tester, user-facing changes the system tester; the strategist runs
+    # for every tag that calls for a level above component, and whenever tests or test infrastructure change.
+    t = default()
+    tags, specs = t["tags"], t["specialists"]
+    calls = {lvl: {tag for tag, row in tags.items() if name in row["run"]} for lvl, name in LEVEL_SPECIALISTS.items()}
+    assert calls == {"contract": {"public-api"}, "integration": {"io-boundary", "data-migration", "concurrency"},
+                     "system": {"ui", "user-facing", "data-migration", "concurrency"}}
+    strategist = {tag for tag, row in tags.items() if "test-strategist" in row["run"]}
+    assert strategist == set().union(*calls.values()) | {"test-infra", "test-changes"}
+    assert tags["test-changes"]["files"] and tags["public-api"]["files"]
+    for name in ("test-strategist", "contract-tester"):
+        assert specs[name]["weight"] == "light" and not specs[name].get("opt_in"), name
+    assert specs["integration-tester"]["weight"] == "heavy" and specs["integration-tester"]["opt_in"] is True
+    assert "test-strategist" not in t["baseline"]
+
+
+def test_design_level_table_matches_the_data_file():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    section = text.split("## Test levels", 1)[1].split("\n## ", 1)[0]
+    rows = re.findall(r"^\| `(contract|integration|system)` \| ([^|]+) \| `([a-z-]+)`", section, re.M)
+    shown = {lvl: (set(re.findall(r"`([a-z-]+)`", tags)), name) for lvl, tags, name in rows}
+    tags = default()["tags"]
+    assert shown == {lvl: ({t for t, row in tags.items() if name in row["run"]}, name)
+                     for lvl, name in LEVEL_SPECIALISTS.items()}
+    for level in ("unit", "component", "contract", "integration", "system"):
+        assert f"| `{level}` |" in section or f"`{level}`, " in section, level
 
 
 def test_every_specialist_category_is_in_the_catalog():
