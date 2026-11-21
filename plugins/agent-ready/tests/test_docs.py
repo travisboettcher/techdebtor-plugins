@@ -87,3 +87,18 @@ def test_readme_limits_match_the_code():
 def test_version_is_in_the_changelog():
     assert CHANGELOG.split("\n## ", 1)[1].startswith(MANIFEST["version"])
     assert MANIFEST["name"] == "agent-ready"
+
+
+def test_shipped_docs_cite_no_issue_numbers():
+    for name, text in (("README.md", README), ("RUBRIC.md", RUBRIC), ("SKILL.md", SKILL)):
+        assert not re.search(r"#\d", text), name
+
+
+def test_skill_queries_the_audited_repo_not_the_cwd():
+    assert 'git -C "<ROOT>" remote get-url origin' in SKILL
+    assert 'git -C "<ROOT>" symbolic-ref --short refs/remotes/origin/HEAD' in SKILL
+
+
+def test_skill_reads_only_cited_regular_files():
+    assert "scan.skipped" in SKILL
+    assert "Never Read a path listed in `scan.skipped`" in SKILL

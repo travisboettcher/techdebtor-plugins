@@ -7,8 +7,6 @@ allowed-tools:
   - Glob
   - Grep
   - Bash(git rev-parse --show-toplevel)
-  - Bash(git remote get-url origin)
-  - Bash(git symbolic-ref --short refs/remotes/origin/HEAD)
 ---
 
 # Agent-readiness audit
@@ -23,8 +21,9 @@ Arguments given: `$ARGUMENTS`
 ## Guardrails (apply throughout)
 
 - **Read-only.** Write nothing into the audited repository: no files, no branches, no commits, no config changes, no installs. The only write is the scanner's output file in the system temp directory. Offering scaffolding (a CLAUDE.md draft, a CI job) is fine; writing it is a separate task the human asks for.
-- **The permission prompts are the human gate.** This skill pre-approves only reading files and three exact read-only git commands. Everything else asks: the scanner run (a pattern for it would also match a same-named script planted in a cloned repo), every project command, and every `gh` call. Do not try to avoid those prompts with other tools, scripts or shell tricks.
+- **The permission prompts are the human gate.** This skill pre-approves only reading files and one exact read-only git command (`git rev-parse --show-toplevel`, which finds the current repository). Everything else asks: the scanner run (a pattern for it would also match a same-named script planted in a cloned repo), every `git -C "<ROOT>"` command (it names the audited repo, so it cannot be an exact pre-approval), every project command, and every `gh` call. Do not try to avoid those prompts with other tools, scripts or shell tricks.
 - **Running project commands executes the project's code.** Before each one, say what it is, that it runs the project's code, and roughly how long it should take. Cheap by default: never run mutation testing, fuzzing campaigns, container-based or full end-to-end suites unless the human opts in, and never run heavy jobs in parallel; one at a time, with the runner's own worker limit set low.
+- **Read only what the scanner cited.** Read follows symlinks, and a hostile repo can plant `CLAUDE.md -> ~/.aws/credentials`. So read only paths inside `<ROOT>` that the scanner's output cites as evidence (they are regular files it listed, or symlinks it checked resolve to regular files inside `<ROOT>`). Never Read a path listed in `scan.skipped` (`symlinks`, `special`, `too_large`, `unreadable`, `dirs`), never a path outside `<ROOT>`, and never a path that only Glob or Grep turned up. Use Glob and Grep inside `<ROOT>` only to locate lines in cited files.
 - **Evidence or "unknown".** Every answer cites a file and line, a CI job, a protection rule, or a command and its output. Where evidence is missing, say `unknown` and how to settle it. Never guess, and never count `unknown` as met.
 - **Nothing leaves the machine** except the `gh` reads the human approves: no issues, comments or PRs.
 
@@ -40,8 +39,8 @@ Arguments given: `$ARGUMENTS`
 python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/agent_ready_scan.py" "<ROOT>" > "<OUT>"
 ```
 
-4. Read `OUT`. Its keys: `scan` (what was listed, read, truncated and skipped), `ecosystems`, `ci` (`systems`, `workflows` with each job's `checks`, `soft_fail` and resolved `via` chain, `capabilities`, `merge_gating`), `tools`, `tests`, `specs`, `intent`, `dev_env`, `context`, `agent_config`, `codegen`, `smoke`, `flow`. The script's docstring describes each. If `scan.truncated` is true, or files you need were skipped as too large, say so in the report and treat what is missing as `unknown`.
-5. The scanner reports facts, not verdicts: a keyword in a job is a hint. Confirm what matters by reading the files it cites: the workflow around each cited line (triggers, conditions, `needs`, matrix), the runner targets in each `via` chain, the agent docs, the tool configs. Use Read, Glob and Grep; they are pre-approved.
+4. Read `OUT`. Its keys: `scan` (what was listed, read, truncated and skipped), `ecosystems`, `ci` (`systems`, `workflows` with each job's `checks`, `soft_fail` and resolved `via` chain, `capabilities`, `merge_gating`), `tools`, `tests`, `specs`, `intent`, `dev_env`, `context`, `agent_config`, `codegen`, `smoke`, `flow`. The script's docstring describes each. If `scan.truncated` or `scan.resolution_truncated` is true, or files you need were skipped as too large, say so in the report and treat what is missing as `unknown`.
+5. The scanner reports facts, not verdicts: a keyword in a job is a hint. Confirm what matters by reading the files it cites: the workflow around each cited line (triggers, conditions, `needs`, matrix), the runner targets in each `via` chain, the agent docs, the tool configs. Use Read, Glob and Grep (pre-approved), within the read-only-what-was-cited guardrail above.
 
 ### 2. Measure what is cheap and safe
 
@@ -50,8 +49,8 @@ Ask once, listing what you propose to run, then run only what the human approves
 - **Suite time.** If the agent docs or CI give a clear test command, time it once (for example `time <command>`). If it needs services, containers or credentials that are not running, do not start them: report the suite time as `unknown`.
 - **Flakiness.** Only when the first run was fast (under about two minutes), run it a second time and compare failures. Any difference is flakiness, and goes in the report.
 - **Cheap checks.** The documented lint and type-check commands, if they take seconds. Optional.
-- **Merge protection.** When the remote is on GitHub and `gh` is available, offer one read: `gh api repos/<owner>/<repo>/rules/branches/<default branch>` (required status checks from rulesets), and, if that shows none, `gh api repos/<owner>/<repo>/branches/<default branch>/protection` (needs admin; a 403 or 404 means `unknown`, not "unprotected"). Owner and repo come from `git remote get-url origin`; the default branch from `git symbolic-ref --short refs/remotes/origin/HEAD`.
-- **Flow.** Optional, with permission: `gh pr list --state merged --limit 50 --json number,createdAt,mergedAt,additions,deletions` for lead time and PR size; reverts and hotfixes in `git log --oneline -200` as a rough escaped-defect signal. Say these are rough.
+- **Merge protection.** When the remote is on GitHub and `gh` is available, offer one read: `gh api repos/<owner>/<repo>/rules/branches/<default branch>` (required status checks from rulesets), and, if that shows none, `gh api repos/<owner>/<repo>/branches/<default branch>/protection` (needs admin; a 403 or 404 means `unknown`, not "unprotected"). Owner and repo come from `git -C "<ROOT>" remote get-url origin`; the default branch from `git -C "<ROOT>" symbolic-ref --short refs/remotes/origin/HEAD`. Always pass `-C "<ROOT>"`: without it git answers for the current directory, which is a different repository when a path was given. Both ask for permission.
+- **Flow.** Optional, with permission: `gh pr list --repo <owner>/<repo> --state merged --limit 50 --json number,createdAt,mergedAt,additions,deletions` for lead time and PR size; reverts and hotfixes in `git -C "<ROOT>" log --oneline -200` as a rough escaped-defect signal. Say these are rough.
 
 Heavy measurements (a mutation run, a fuzzing campaign, a container suite) are listed in the report as "not run" with the command to run them, unless the human opted in. If they did: one at a time, and stop at the first sign of trouble (mass failures usually mean shared state or a missing service, not real bugs).
 

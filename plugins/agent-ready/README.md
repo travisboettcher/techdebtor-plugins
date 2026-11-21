@@ -41,14 +41,14 @@ The report has a summary (step and bottleneck), a layer table, a CI capability t
 
 The scanner never executes project code, never imports from the scanned repo, runs no subprocesses and makes no network calls. It skips `.git`, dependency, virtualenv, cache and build directories, never follows a symlink out of the repository, reads only regular files, and caps file counts (20,000) and file sizes (512 KB). Its regexes are linear time, because the input is untrusted.
 
-The skill writes nothing into the audited repository. Its pre-approved tools are Read, Glob, Grep and three exact read-only git commands; everything else asks, including the scanner run itself (a pre-approved pattern for it would also match a same-named script planted in a cloned repo). It never runs mutation testing, fuzzing campaigns or container suites unless you opt in, and never runs heavy jobs in parallel.
+The skill writes nothing into the audited repository. Its pre-approved tools are Read, Glob, Grep and one exact read-only git command (`git rev-parse --show-toplevel`); everything else asks, including the `git -C <path>` reads of the audited repo's remote and default branch, including the scanner run itself (a pre-approved pattern for it would also match a same-named script planted in a cloned repo). It reads only files the scanner cited, never a symlink or special file the scanner skipped. It never runs mutation testing, fuzzing campaigns or container suites unless you opt in, and never runs heavy jobs in parallel.
 
 ## Relation to agent-loop
 
 [`agent-loop`](../agent-loop) runs the development loop; `agent-ready` tells you what that loop can rely on in a given repo.
 
-- The `--json` output is shaped so `agent-loop` can later choose specialists from it (agent-loop issue #3, the specialist swarm): a specialist whose tooling is missing reports BLOCKED, and the audit says which ones those are and how to unblock them.
-- It reports existing `verify-*` skills and recommends new ones (agent-loop issue #1, the verification-skill rung).
+- The `--json` output is shaped so `agent-loop` can later choose specialists from it (a planned swarm of verification specialists, such as a mutation or fuzzing specialist): a specialist whose tooling is missing reports BLOCKED, and the audit says which ones those are and how to unblock them.
+- It reports existing `verify-*` skills and recommends new ones (a planned verification-skill rung in agent-loop's promotion ladder).
 
 ## Development
 

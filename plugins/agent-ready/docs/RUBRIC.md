@@ -174,7 +174,7 @@ Diff coverage across N per-file jobs needs all of: a coverage file uploaded from
 Rank fixes by **agent impact**, then effort:
 
 1. **Gate first.** Fixes for the current bottleneck gate come first, then the next gate. A fix two gates ahead waits, however cheap.
-2. **What it unlocks.** Name what it enables: the next adoption step, a `verify-*` skill an agent can run, or the `agent-loop` specialist it makes possible (the specialists proposed in agent-loop issue #3, for example a mutation, fuzzing, contract or security specialist; a specialist whose tooling is missing reports BLOCKED, and this fix is how to unblock it).
+2. **What it unlocks.** Name what it enables: the next adoption step, a `verify-*` skill an agent can run, or the `agent-loop` specialist it makes possible (a planned agent-loop specialist, for example a mutation, fuzzing, contract or security specialist; a specialist whose tooling is missing reports BLOCKED, and this fix is how to unblock it).
 3. **Flow.** Say which of review effort, escaped defects or lead time it should move, and how you would see it move.
 4. **Effort.** `S`: config plus one CI step, under about an hour. `M`: about a day, including making it pass. `L`: more, or needs a decision from the team.
 5. **Prior art.** Point at the closest existing job, config or script in the repo to copy (a file and line), so the fix matches the repo's shape.
@@ -216,7 +216,7 @@ With `--json`, the report ends with one fenced `json` block of this shape, for t
       "gate": "2->3",
       "impact": "high",
       "effort": "M",
-      "unlocks": ["agent-loop mutation specialist (#3)"],
+      "unlocks": ["a planned agent-loop mutation specialist"],
       "flow": "escaped defects",
       "prior_art": ".github/workflows/ci.yml:20",
       "evidence": ["pyproject.toml:30"]
