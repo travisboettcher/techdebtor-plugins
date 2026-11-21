@@ -36,7 +36,7 @@ If the task is ambiguous in a way that changes what gets built, ask the human no
 
 Write the plan record:
 - **Approach**, and the main alternative you rejected, with why.
-- **Units**: small and ordered, each split by behaviour and within the branch budget (added plus removed lines, excluding generated artifacts and lockfiles), with its tests in the same unit; never a "code" unit and a separate "tests" unit. For each: what changes, the files, its criteria with their verifiers, and which units it depends on.
+- **Units**: small and ordered, each split by behaviour and within the branch budget (added plus removed lines, excluding generated artifacts and lockfiles), with its tests in the same unit; never a "code" unit and a separate "tests" unit. For each: what changes, the files, its criteria with their verifiers, the verify skills chosen for its files (read `${CLAUDE_SKILL_DIR}/references/verify-skills.md` to find and choose them), and which units it depends on.
 - **Test plan**: each criterion, its test, and the unit that adds it.
 - **Risks**, and what is **out of scope**.
 
@@ -55,7 +55,7 @@ Units run one at a time, in plan order. Never run heavy jobs in parallel (full b
 
 ## 5. Test
 
-Brief the `agent-loop:tester` agent with: the acceptance criteria, the verifiers, the baseline failures (IDs and signatures) and wall time, `<base>` (so it can see what the diff touches), and the rules brief. It runs them and reports; it does not fix code. When the diff touches tests or measurement, it also applies its standing measurement checks (DESIGN.md, "Measurement invariants").
+Brief the `agent-loop:tester` agent with: the acceptance criteria, the verifiers (with the paths of the chosen verify skills), the baseline failures (IDs and signatures) and wall time, `<base>` (so it can see what the diff touches), and the rules brief. It runs them and reports; it does not fix code. When the diff touches tests or measurement, it also applies its standing measurement checks (DESIGN.md, "Measurement invariants").
 
 - Every failure it reports is a finding with `caught_by: tester`, recorded at the stage where the mistake was made: `stage: implement` for a defect in the change, `stage: test-write` for a wrong test, `stage: plan` when the acceptance criterion or verifier itself is missing or wrong.
 - A verifier reported BLOCKED (missing tool, credentials, network, broken environment) is not something the implementer can fix; see step 7.

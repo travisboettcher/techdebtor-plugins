@@ -33,7 +33,7 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 2. **Preflight.** A clean tree; when starting on the default branch, a work branch from an up-to-date `origin/<default>`; the build, lint and test commands; a baseline test run, so tests that already fail are never blamed on the change; and the project's generators and stale-artifact checks, with every new file checked against their globs.
 3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval, and nothing is implemented or committed before it.
 4. **Build each unit.** The `test-writer` agent writes failing tests from the criteria and interfaces, never the implementation; the `implementer` makes them pass; the lead reruns the tests itself rather than trusting the report. One commit per unit, if you asked for commits. Heavy jobs (full builds, mutation testing) never run in parallel.
-5. **Test.** The `tester` agent runs the project's real verifiers and reports pass/fail with output, separating pre-existing failures. When the change touches tests or measurement, it also checks measurement invariants (a subset run never beats the full run, order independence, no silent allowlists, and more). It does not fix code.
+5. **Test.** The `tester` agent runs the project's real verifiers (including the project's and your `verify-*` skills that the plan chose for the changed files) and reports pass/fail with output, separating pre-existing failures. When the change touches tests or measurement, it also checks measurement invariants (a subset run never beats the full run, order independence, no silent allowlists, and more). It does not fix code.
 6. **Review.** The `reviewer` agent gets the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
 7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
 8. **Pre-push gate.** The final diff must be the one last reviewed; then whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
@@ -95,7 +95,10 @@ On first use the lead suggests adding `.claude/runs/` to `.gitignore`; it does n
 |---|---|
 | `note` | Seen once: it stays in the run record; no rule yet. |
 | `instruction` | Seen twice, or once at `critical` severity: a line in CLAUDE.md, a skill, or memory. |
-| `hook` | Recurs after an instruction exists, and can be checked mechanically: a hook or CI check that blocks it. |
+| `check` | Recurs after an instruction exists, needs judgment to verify, and can be written as a repeatable procedure: a `verify-<category>` skill that reports violations as `path:line` lines and PASS/FAIL. |
+| `hook` | Recurs after an instruction (or a check) exists, and can be checked mechanically: a hook or CI check that blocks it. |
+
+A `check` is a read-only skill in `.claude/skills/` or `~/.claude/skills/`. The lead picks the ones that apply to each unit's files and the tester follows them like any verifier; it never runs a fix step. A check that keeps recurring moves to a hook or test where it can be made mechanical, otherwise its procedure is rewritten. The shape is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Verify skills"), with a worked example in [`docs/examples/verify-doc-drift/SKILL.md`](docs/examples/verify-doc-drift/SKILL.md).
 | `test` | The mistake is about the code's behaviour, not process: a test or eval that fails on it. |
 
 ## Human gate and scope

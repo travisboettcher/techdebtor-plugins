@@ -59,7 +59,7 @@ For each rule in both ledgers, add to the run-record occurrences (`occurrences_s
 | Verdict | When | Action |
 |---|---|---|
 | `working` | no occurrence since `added` | keep |
-| `recurring` | one or more | propose the next rung up, or a rewrite if the rule is unclear or the agent could not have seen it |
+| `recurring` | one or more | propose the next rung up, or a rewrite if the rule is unclear or the agent could not have seen it; for a `check`, see DESIGN.md "Verify skills" (escalation) |
 | `dormant` | no occurrence, `days_since_added` >= 90, and no relevant work in 90 days (no record or signal touching what the rule guards) | propose retiring it |
 
 Also confirm the rule still exists at `location`; a missing rule is reported, not silently re-added. Prepare one `history` entry per rule (`date`, `occurrences_since`, `verdict`); these go in the proposal commit, not on the default branch.
@@ -74,7 +74,8 @@ Rank candidates by recurrence x severity (critical = 3, major = 2, minor = 1) an
 
 Rung (the ladder):
 - `instruction`: seen twice, or once at `critical`. Write the actual text and name the file (CLAUDE.md, a skill, memory). One or two sentences, phrased as what to do, with the reason.
-- `hook`: it recurs after an instruction exists **and** a script can check it mechanically. Write the actual hook config and script (see `${CLAUDE_SKILL_DIR}/references/hooks.md`).
+- `check`: it recurs after an instruction exists, deciding a violation needs judgment, **and** the decision can be written as a repeatable procedure. Write the actual verify skill, `verify-<category>`, from the template in `${CLAUDE_SKILL_DIR}/references/verify-skill.md`.
+- `hook`: it recurs after an instruction (or a check) exists **and** a script can check it mechanically. Write the actual hook config and script (see `${CLAUDE_SKILL_DIR}/references/hooks.md`).
 - `test`: the mistake is about the code's behaviour, not process. Write the actual test in the project's framework.
 
 Scope:
@@ -82,7 +83,7 @@ Scope:
 - `user`: the human's preferences or environment across repos (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/.claude/skills`, memory).
 - `framework`: would help anyone using these plugins (a missing reviewer check, a better lead prompt, a new catalog category with its description, usual stage and cheapest rule).
 
-Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location`, `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
+Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 
 ### 5. Human gate
 
@@ -94,9 +95,9 @@ WT=$(mktemp -d /tmp/retro-wt-XXXXXX)
 git worktree add -b "$BR" "$WT" <default-branch>
 ```
 
-In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing). Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
+In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, verify skill, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing). Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added; follow a new verify skill's procedure once, read-only, as its reference says. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
 
-**User scope.** Show each change as a unified diff against the current file (including the `~/.claude/rules-ledger.yml` entry) and ask. Apply only the ones the human approves, exactly as shown.
+**User scope.** Show each change as a unified diff against the current file, or against nothing for a new one such as `~/.claude/skills/verify-<category>/SKILL.md` (including the `~/.claude/rules-ledger.yml` entry), and ask. Apply only the ones the human approves, exactly as shown.
 
 **Framework scope.** Append to `<repo>/.claude/runs/framework-proposals.md` (create it if missing): a dated heading, the category, count and severity, the proposed change to the plugin, and paraphrased evidence only (no `excerpt` text, quoted or not). Never file it anywhere.
 

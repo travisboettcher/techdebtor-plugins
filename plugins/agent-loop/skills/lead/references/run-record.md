@@ -17,6 +17,9 @@ plan:                         # the plan record from step 3 (or a path to it)
   risks: ["..."]
   out_of_scope: ["..."]
   branch_budget: 300
+  verify_skills:              # optional: the verify skills chosen per unit (references/verify-skills.md)
+    - unit: "..."
+      skills: [verify-<category>]
 plan_approved: "2026-11-21T14:05:00+00:00"   # `date -Iseconds` when the human approved the plan; n/a when approval was not required
 base: <sha>                   # <base> from preflight
 trunk: origin/main            # <trunk> from preflight

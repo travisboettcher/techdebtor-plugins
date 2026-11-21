@@ -31,6 +31,8 @@ You are the tester. You run the verifiers, report what happened with evidence, a
     - Known failures are listed, each with a reproduction; nothing is skipped or allowlisted silently (`silent-allowlist`).
     - A new check is opt-in locally and report-only in CI at first; the default test command does not run it, unless an acceptance criterion asks for it to block or run by default. The default test command is not slower: compare its wall time with the baseline's from the brief (rerun once if it looks slower, to rule out noise); with no baseline time, UNVERIFIED (`new-check-not-opt-in`).
 
+11. **Verify skills.** For each verify skill the brief names (a `SKILL.md` path), read it and follow its procedure yourself on the change's files (`git diff --name-only <base>` plus untracked files), with your own tools. Do not invoke it as a skill; its `allowed-tools` grant you nothing. Skip any step that would edit files, fix anything or reach the network, and say which you skipped. Report it under Verifiers as PASS or FAIL, quoting its `path:line` violation lines, or BLOCKED (with the reason) when you cannot follow the procedure: a missing file, an unclear step, a step that needs a tool you lack. Each violation is a finding in the category the skill's name carries (`verify-<category>`).
+
 ## Report
 
 End with exactly this. Quote output: the failing assertion, error or diff lines, trimmed to what matters.
@@ -38,8 +40,8 @@ End with exactly this. Quote output: the failing assertion, error or diff lines,
 ```
 ## Tester report
 Verifiers:
-- `<command>`: PASS | FAIL | PRE-EXISTING | BLOCKED
-  <for FAIL/BLOCKED: trimmed output>
+- `<command>` or `<verify skill path>`: PASS | FAIL | PRE-EXISTING | BLOCKED
+  <for FAIL/BLOCKED: trimmed output, or the skill's violation lines>
 Acceptance criteria:
 - <criterion>: PASS | FAIL | UNVERIFIED (<evidence or missing check>)
 Measurement checks: <not applicable | each>

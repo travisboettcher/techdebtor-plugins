@@ -479,3 +479,59 @@ def test_record_with_gate_fields_parses(tmp_path):
     assert errors == []
     assert recs[0]["trunk"] == "origin/main"
     assert {"base", "reviewed_diff", "plan_approved"} <= set(recs[0])
+
+
+# --- the check rung -------------------------------------------------------------
+
+CHECK_LEDGER = """\
+schema: 1
+rules:
+  - id: doc-drift-2
+    category: doc-drift
+    rung: check                # a verify skill
+    scope: project
+    location: ".claude/skills/verify-doc-drift/SKILL.md"
+    summary: "Every other description of a changed option or default says the same."
+    added: 2026-11-10
+    baseline: 2
+    history: []
+"""
+
+
+def test_ledger_accepts_the_check_rung(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(CHECK_LEDGER)
+    recs = [{"date": "2026-11-12", "findings": [{"category": "doc-drift", "severity": "minor"}]},
+            {"date": "2026-11-09", "findings": [{"category": "doc-drift", "severity": "minor"}]}]
+    rep = ledger_report(load_ledger(p, "project"), recs, NOW)
+    (rule,) = rep["rules"]
+    assert "error" not in rule
+    assert rule["rung"] == "check"
+    assert rule["location"] == ".claude/skills/verify-doc-drift/SKILL.md"  # survives redaction intact
+    assert rule["occurrences_since"] == 1  # counted like any other rung
+
+
+def test_cli_reports_a_check_rule(tmp_path):
+    root = tmp_path / "repo"
+    _write(root, "2026-11-20-a.yml", RECORD.replace("2026-11-21", "2026-11-20").replace(
+        "generated-file-hand-edit   # kebab-case", "doc-drift"))
+    (root / ".claude" / "rules-ledger.yml").write_text(CHECK_LEDGER)
+    out = subprocess.run([sys.executable, str(SCRIPT), "--root", str(root), "--since", "2026-11-01",
+                          "--transcripts", str(tmp_path / "none.jsonl"), "--user-ledger", str(tmp_path / "none.yml")],
+                         capture_output=True, text=True, check=True)
+    (rule,) = json.loads(out.stdout)["ledgers"]["project"]["rules"]
+    assert rule["rung"] == "check" and rule["occurrences_since"] == 1
+
+
+def test_record_with_verify_skills_in_the_plan_parses_and_passes_the_gate(tmp_path):
+    from record_gate import approval_failures, review_failures
+    text = PLAN_RECORD.replace("  branch_budget: 300\n", "  branch_budget: 300\n  verify_skills:\n"
+                               "    - unit: \"flag parsing and help text\"\n      skills: [verify-doc-drift]\n")
+    text = text.replace("baseline_failures:", "plan_approved: n/a\nbaseline_failures:", 1)
+    _write(tmp_path, "2026-11-21-v.yml", text)
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    assert recs[0]["plan"]["verify_skills"] == [{"unit": "flag parsing and help text", "skills": ["verify-doc-drift"]}]
+    rec = parse_yaml_lite(text)
+    assert review_failures(rec) == []
+    assert approval_failures(rec, required=False, repo=None, base=None) == []
