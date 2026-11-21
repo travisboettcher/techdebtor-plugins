@@ -45,13 +45,25 @@ jobs:
           echo "$dir" >> "$GITHUB_PATH"
       - name: Run Vale
         # Relative paths from the repository root: .vale.ini's globs pick each file's style by path.
-        # One Vale run over every file (no xargs, which could split it into several JSON documents).
+        # One Vale run per file set (no xargs, which could split a run into several JSON documents).
+        # Front matter is never linted, so description and argument-hint values of skills, agents
+        # and commands are copied out by frontmatter_prose.py, linted with the Prompt style there,
+        # and mapped back to their source lines.
         run: |
           set -uo pipefail
           vale --version
+          fm="$RUNNER_TEMP/frontmatter"
+          python3 .github/scripts/frontmatter_prose.py extract --out "$fm" || exit 1
           mapfile -d '' files < <(git ls-files -z '*.md')
+          mapfile -d '' fm_files < <(cd "$fm" && find plugins -name '*.md' -print0 2>/dev/null)
           status=0
           vale --output=JSON --no-exit "${files[@]}" > "$RUNNER_TEMP/vale.json" 2> "$RUNNER_TEMP/vale.err" || status=$?
+          if [ "$status" -eq 0 ] && [ "${#fm_files[@]}" -gt 0 ]; then
+            (cd "$fm" && vale --config "$GITHUB_WORKSPACE/.vale.ini" --output=JSON --no-exit "${fm_files[@]}") \
+              > "$RUNNER_TEMP/fm-raw.json" 2> "$RUNNER_TEMP/vale.err" || status=$?
+          else
+            echo '{}' > "$RUNNER_TEMP/fm-raw.json"
+          fi
           if [ "$status" -ne 0 ]; then
             # Vale itself failed (configuration or runtime error): its error is JSON on stderr.
             cat "$RUNNER_TEMP/vale.err" >&2
@@ -59,7 +71,8 @@ jobs:
             echo "::error title=Vale::Vale exited $status before linting; see its error above"
             exit 1
           fi
-          python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.json"
+          python3 .github/scripts/frontmatter_prose.py remap --out "$fm" "$RUNNER_TEMP/fm-raw.json" > "$RUNNER_TEMP/fm.json" || exit 1
+          python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.json" "$RUNNER_TEMP/fm.json"
 
   token-budget:
     name: token budget
