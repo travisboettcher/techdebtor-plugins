@@ -1,0 +1,11 @@
+{
+  "name": "lead",
+  "version": "0.1.0",
+  "description": "Tech-lead orchestration: plan a task with acceptance criteria, run implementer, tester and independent reviewer agents in a bounded loop, and write a run record of everything each stage caught.",
+  "author": {
+    "name": "Travis Boettcher"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/travisboettcher/agent-loops",
+  "keywords": ["orchestration", "subagents", "code-review", "testing", "workflow"]
+}
