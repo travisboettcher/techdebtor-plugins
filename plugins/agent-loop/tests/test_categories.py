@@ -80,3 +80,11 @@ def test_design_measurement_invariants_use_catalog_names():
     assert {"measurement-attribution-leak", "shared-state-false-failures", "wrong-auth-identity",
             "silent-allowlist", "leftover-resources", "shell-portability", "new-check-not-opt-in"} == used
     assert used <= set(catalog())
+
+
+@pytest.mark.parametrize("path", [str(p.relative_to(PLUGIN)) for p in shipped_docs()]
+                         + [str(p.relative_to(PLUGIN)) for p in sorted((PLUGIN / "scripts").glob("*.py"))])
+def test_shipped_files_do_not_cite_issue_numbers(path):
+    # Installed users do not have this repository's issues; describe planned work in words.
+    text = (PLUGIN / path).read_text()
+    assert not re.search(r"(?<![\w&/])#\d+\b", text), path
