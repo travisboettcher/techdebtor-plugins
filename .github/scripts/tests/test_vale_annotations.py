@@ -98,3 +98,8 @@ def test_escaping_is_linear_time():
     va.escape_property(big)
     va.escape_data(big)
     assert time.perf_counter() - start < 2
+
+
+def test_deeply_nested_json_fails_cleanly(tmp_path, capsys):
+    code, out = run(None, tmp_path, capsys, as_text="[" * 200_000 + "]" * 200_000)
+    assert code == 2 and "::error title=Vale::" in out

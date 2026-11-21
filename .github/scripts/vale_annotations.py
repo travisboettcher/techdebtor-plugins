@@ -7,8 +7,8 @@ Usage: vale --output=JSON --no-exit <files> > vale.json
 Prints one annotation per alert (error -> ::error, warning -> ::warning,
 suggestion -> ::notice) and a summary line. Exit 0 when there are no errors,
 1 when Vale reported an error-level alert, 2 when Vale's output could not be
-read (including Vale's own runtime errors). Standard library only; every step
-is linear in the size of the input.
+read (malformed or too deeply nested JSON, or Vale's own runtime error).
+Standard library only; every step is linear in the size of the input.
 """
 
 import json
@@ -64,7 +64,7 @@ def main(argv=None):
             print(f"::error title=Vale::{escape_data(results['Code'])} {escape_data(results['Text'])}")
             return 2
         rows = list(annotations(results))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError) as e:
         print(f"::error title=Vale::could not read Vale's JSON output: {escape_data(e)}")
         return 2
 
