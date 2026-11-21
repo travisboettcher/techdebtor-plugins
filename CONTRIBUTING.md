@@ -41,10 +41,10 @@ python -m pytest -q
 
 | Style | Files | What it checks |
 |---|---|---|
-| Prompt | `CLAUDE.md`, `plugins/*/skills/**`, `plugins/*/agents/*.md`, `plugins/*/docs/specialists/*.md`, `plugins/*/docs/examples/**` | What weakens an instruction to a model: hedges ("try to", "if possible", "consider"), politeness ("please"), filler ("simply", "just", "in order to"), "you should" instead of the imperative, "etc.", ALL-CAPS words outside an allowlist of protocol words and acronyms, and sentences over 60 words. Plus repeated words. |
-| Docs | every other Markdown file: READMEs, `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/*.md` | Vale's spelling and repeated-word checks, and a subset of [write-good](https://github.com/vale-cli/write-good) and [proselint](https://github.com/vale-cli/proselint) (hedging, clichés, redundancy, "very", sentences starting with "So"). |
+| Prompt | `CLAUDE.md`, `plugins/*/skills/**`, `plugins/*/agents/**`, `plugins/*/commands/**`, `plugins/*/docs/specialists/*.md`, `plugins/*/docs/examples/**`, and the `description` and `argument-hint` of every skill, agent and command | What weakens an instruction to a model: hedges ("try to", "if possible", "consider"), politeness ("please"), filler ("simply", "just", "in order to"), "you should" instead of the imperative, "etc.", ALL-CAPS words outside an allowlist of protocol words and acronyms, and sentences over 60 words. Plus repeated words. |
+| Docs | every other Markdown file: READMEs, `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/*.md` (including `DESIGN.md` and `categories.md`: skills read them too, but they are written for people first) | Vale's spelling and repeated-word checks, and a subset of [write-good](https://github.com/vale-cli/write-good) and [proselint](https://github.com/vale-cli/proselint) (hedging, clichés, redundancy, "very", sentences starting with "So"). |
 
-Code spans, fenced code blocks and YAML front matter are never linted. Most rules are warnings: CI annotates them on the pull request but does not fail. Errors fail CI; they are kept to rules that are always right (repeated words; "please", "kindly", "simply", "basically" and "in order to" in prompts).
+Code spans, fenced code blocks and YAML front matter are never linted; a word you are writing about rather than using goes in a code span (write `` `please` ``, not "please"), or an error-level rule fires on it. The model-facing front matter values are linted separately: `.github/scripts/frontmatter_prose.py` copies each skill's, agent's and command's `description` and `argument-hint` into a scratch directory, Vale lints them with the Prompt style, and the alerts point back at the source line. Most rules are warnings: CI annotates them on the pull request but does not fail. Errors fail CI; they are kept to rules that are always right (repeated words; "please", "kindly", "simply", "basically" and "in order to" in prompts).
 
 The styles live in `.github/vale/styles/`: `Prompt/` is this repository's own; `write-good/` and `proselint/` are copied unmodified from their releases (v0.5.0 and v0.4.0) with their licenses, and `.vale.ini` sets their levels. Nothing is downloaded at lint time; do not run `vale sync`.
 
@@ -53,6 +53,16 @@ The styles live in `.github/vale/styles/`: `Prompt/` is this repository's own; `
 ```
 git ls-files -z '*.md' | xargs -0 vale
 ```
+
+and for the front matter values:
+
+```
+out=$(mktemp -d)
+python3 .github/scripts/frontmatter_prose.py extract --out "$out"
+(cd "$out" && find plugins -name '*.md' -print0 | xargs -0 vale --config "$OLDPWD/.vale.ini")
+```
+
+The alerts name the scratch copies (`SKILL.description.md`, line 1 for the first line of the value); `.github/workflows/prose.yml` maps them back to the source.
 
 **Add vocabulary.** When Vale's spelling check flags a correct term (a tool name, a coined word such as `worktree`), add it to `.github/vale/styles/config/vocabularies/Repo/accept.txt`, one regular expression per line, kept in alphabetical order; `[Ww]orktrees?` accepts the capitalised and plural forms. For a new protocol word or acronym that the Prompt style calls shouting, add it to the `exceptions` in `.github/vale/styles/Prompt/Shouting.yml`. Tokens joined by underscores, such as `PLAN_READY`, are never flagged.
 
@@ -69,8 +79,8 @@ It runs the CLI signed out in a fresh home directory, because a signed-in CLI es
 ## Pull requests
 
 - Keep pull requests small: one behaviour each, tests alongside. When a change needs several, stack them with [`gh stack`](https://github.com/github/gh-stack) (`gh extension install github/gh-stack`), each based on the one below.
-- Never push to `main`; it changes only through reviewed pull requests. The repository's ruleset requires one approving review, and a push dismisses earlier approvals.
-- CI runs on every pull request: each plugin's tests, `claude plugin validate` on the marketplace and each plugin, Vale, the token budget, and the tests of the scripts under `.github/scripts/`. Keep it green.
+- `main` changes only through pull requests, for everyone: the repository's ruleset blocks direct pushes, force pushes and deleting the branch. A pull request needs one approving review, and a new push dismisses earlier approvals. The owner's admin role can merge a pull request without an approval.
+- CI runs on every pull request: each plugin's tests, `claude plugin validate` on the marketplace and each plugin, Vale, the token budget, and the tests of the scripts under `.github/scripts/`. No status check is required by the ruleset yet, so check that CI is green before merging.
 
 ## License
 

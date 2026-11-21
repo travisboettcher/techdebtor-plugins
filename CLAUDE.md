@@ -5,7 +5,7 @@ A public Claude Code plugin marketplace. Humans start with `CONTRIBUTING.md`; th
 ## Layout
 
 - `.claude-plugin/marketplace.json`: the marketplace; one entry per plugin.
-- `plugins/<name>/`: one plugin. `.claude-plugin/plugin.json`, `skills/<skill>/SKILL.md` (and `references/`), `agents/*.md`, `scripts/` (Python, standard library only), `tests/` (pytest), `docs/` (`docs/DESIGN.md` is the contract), `README.md`, `CHANGELOG.md`.
+- `plugins/<name>/`: one plugin. `.claude-plugin/plugin.json`, `skills/<skill>/SKILL.md` (and `references/`), `agents/*.md`, `commands/*.md`, `scripts/` (Python, standard library only), `tests/` (pytest), `docs/` (`docs/DESIGN.md` is the contract), `README.md`, `CHANGELOG.md`.
 - `.github/workflows/ci.yml` (tests, manifests) and `prose.yml` (Vale, token budget); `.github/scripts/` with its tests; `.github/token-budgets.json`; `.vale.ini` and `.github/vale/styles/`.
 - `.claude/runs/` holds local run records: gitignored, never committed.
 
@@ -29,4 +29,4 @@ From the repo root unless noted; one at a time.
 - Tests: `cd plugins/<name> && python -m pytest -q`; the repo's scripts: `python -m pytest -q .github/scripts/tests`.
 - Manifests: `claude plugin validate .` and `claude plugin validate plugins/<name>`.
 - Token cost: `python3 .github/scripts/token_budget.py` (ceilings in `.github/token-budgets.json`); report the always-on cost in the pull request when it changes.
-- Prose: `git ls-files -z '*.md' | xargs -0 vale` with Vale 3.28.1. Errors fail CI; fix warnings in text you touch.
+- Prose: `git ls-files -z '*.md' | xargs -0 vale` with Vale 3.28.1 (front matter: see `CONTRIBUTING.md`). Errors fail CI; fix warnings in text you touch. Put a word you write about in a code span (`` `please` ``), or it trips the rules.
