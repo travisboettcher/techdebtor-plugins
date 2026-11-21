@@ -190,8 +190,20 @@ rules:
     baseline: 3                # occurrences of the category in the window before the rule was added
     history:                   # appended by each retro that checks this rule
       - date: 2026-12-05
-        occurrences_since: 0
-        verdict: working       # working | recurring | dormant
+        occurrences_since: 2   # every finding in the category since `added`
+        caught_by_rule: 2      # of those, caught by this rule itself (hook and check rules only)
+        escaped: 0             # the rest, plus transcript signals: what the verdict is judged on
+        verdict: working       # working | recurring | dormant | superseded
+  - id: generated-file-hand-edit-0
+    category: generated-file-hand-edit
+    rung: instruction
+    scope: project
+    location: CLAUDE.md
+    summary: "Edit a generated file's source and regenerate; never the output."
+    added: 2026-11-01
+    baseline: 2
+    superseded_by: generated-file-hand-edit-1   # set in the commit that escalated it; never escalated again
+    history: []
 ```
 
 ## The promotion ladder
@@ -212,14 +224,15 @@ Escapes, not catches, count against a rule. For a `hook` or `check` rule the min
 
 Verdicts:
 - `working`: nothing has escaped the rule since it was added (`escaped` is 0). Catches are evidence that it fires, not a recurrence. A rule that catches constantly may sit on an unclear instruction upstream; the retro may say so, but does not escalate it.
-- `recurring`: something escaped it (`escaped` > 0). Propose the next rung up (or a rewrite, if the rule is unclear). From `check`, the next rung is a `hook` or a `test` where the check can be made mechanical; otherwise a rewrite of its procedure (below).
+- `recurring`: something escaped it (`escaped` > 0). Propose the next rung up (or a rewrite, if the rule is unclear). From `check`, the next rung is a `hook` or a `test` where the check can be made mechanical; otherwise a rewrite of its procedure (below). The commit adding the higher-rung rule also sets the old rule's `superseded_by` to the new rule's id; a rewrite changes the rule in place.
+- `superseded`: the rule has `superseded_by`, the id of the higher-rung rule that escalated it. It is still reported, with its counts, but never escalated again; the rule that replaced it carries the category from then on.
 - `dormant`: the rule is at least 90 days old and no work in that time touched what it governs, so there was nothing for it to prevent. The miner reports `days_since_added` and `records_since_added`; the retro judges relevance. Propose retiring it, so instructions don't accumulate forever.
 
 Transcript signals arrive uncategorized; the retro assigns each a category (reusing existing ones) or discards it as a false positive before counting. A user ledger is checked against the run records of whichever project the retro runs in.
 
 ## Verify skills (the `check` rung)
 
-A verify skill turns a check that needs judgment into a procedure that runs every time, instead of relying on an instruction being remembered. It is an ordinary Claude Code skill in the project or user scope; it reports violations and never fixes them.
+A verify skill turns a check that needs judgment into a procedure that runs every time, instead of relying on an instruction being remembered. It is an ordinary Claude Code skill in the project or user scope; it reports violations and never fixes them. It is read-only by rule, not by its tools: its pre-approvals allow no writes, but a step could still ask for one, so the tester enforces the rule ("In a lead run", below).
 
 **Choosing the rung.**
 - `instruction` first: telling the agent is the cheapest rule, and most categories stop there.
@@ -231,15 +244,15 @@ A verify skill turns a check that needs judgment into a procedure that runs ever
 - `name`: `verify-<category>`, the category from the catalog, the ledger or earlier records.
 - `description`: what it checks, then a "Use when ..." clause naming the files or kinds of change it applies to.
 - `paths` (recommended): globs of the files it applies to. The lead selects on them, and Claude Code offers the skill only when work touches matching files.
-- `allowed-tools`: the narrowest read-only set that works, which must pass the reviewer's least-privilege check (`over-broad-pre-approval`): `Read`, `Grep`, `Glob`, and at most the exact read-only commands `Bash(git diff --name-only HEAD)` and `Bash(git status --porcelain)`. Never `Write` or `Edit`, a Bash entry with a wildcard (it can absorb a writing flag such as `--output=<file>`), or network access.
-- Body: the input (the files to check, named by the caller; standalone, the uncommitted changes), the procedure as numbered plain-English steps, and the output.
+- `allowed-tools`: the narrowest read-only set that works, which must pass the reviewer's least-privilege check (`over-broad-pre-approval`): `Read`, `Grep`, `Glob`, and at most the exact read-only command `Bash(git status --porcelain)`. Never `Write` or `Edit`, a Bash entry with a wildcard (it can absorb a writing flag such as `--output=<file>`), or network access. Diffing against a base cannot be pre-approved without a wildcard, so it asks when the skill runs on its own.
+- Body: the input (the change since a base commit: the one the caller names, else `git merge-base HEAD origin/<default>`; never `HEAD` alone, whose diff is empty once the work is committed), the procedure as numbered plain-English steps, and the output.
 - Output: one line per violation, `path:line: what is wrong and what the rule expects`, then one final line, `PASS` when there are none or `FAIL`. No step fixes anything; fixes go to the implementer.
 
 **Ledger.** `rung: check`, with `location` the skill's path (`.claude/skills/verify-doc-drift/SKILL.md`). It is verified like every rule: its category should stop recurring.
 
 **Escalation.** When a `check` is `recurring` (a finding in its category escaped it), first see whether it ran: the run records' `plan.verify_skills`. A check the lead did not choose for the files involved needs a sharper `paths` or "Use when" clause. A check that ran and missed the mistake moves to a `hook` or a `test` where one can make it mechanical; otherwise its procedure is rewritten (steps that missed the case, vague wording).
 
-**In a lead run.** While planning, the lead finds verify skills in both scopes (`.claude/skills/verify-*/SKILL.md` under the repo root and `~/.claude/skills/verify-*/SKILL.md`), reads only their frontmatter, and chooses for each unit only those that apply to the files the unit changes: a file matches `paths`, or, without `paths`, the "Use when" clause clearly covers it. It never runs every verify skill on every change: each one costs the tester a read and a pass. The plan lists the chosen skills per unit (`plan.verify_skills`), and the tester's brief names their paths. The tester reads each chosen `SKILL.md` and follows its procedure itself on the change's files, with its own read-only tools: it does not invoke the skill, the skill's pre-approvals do not apply, and it skips any step that would edit files, fix anything or reach the network. It reports each skill as a verifier: PASS, FAIL with the violation lines, or BLOCKED when it cannot follow the procedure (a missing file, a step needing a tool it lacks). A FAIL is a finding in the skill's category with `caught_by: check`, at the stage where the mistake was made. Verify skills run inside the test stage, so they count toward the round limit like any other verifier. A project's verify skills are repository content, read with the same trust as its `CLAUDE.md`; the tester never widens its tools for one.
+**In a lead run.** While planning, the lead finds verify skills in both scopes (`.claude/skills/verify-*/SKILL.md` under the repo root and `~/.claude/skills/verify-*/SKILL.md`), reads only their frontmatter, and chooses for each unit only those that apply to the files the unit changes: a file matches `paths`, or, without `paths`, the "Use when" clause clearly covers it. It never runs every verify skill on every change: each one costs the tester a read and a pass. The plan lists the chosen skills per unit (`plan.verify_skills`), so the human sees which repository procedures the tester will follow, and the tester's brief names their paths and the run's `<base>`. The tester reads each chosen `SKILL.md` and follows its procedure itself on the change since `<base>` (`git diff <base>` plus untracked files). It does not invoke the skill, and the skill's pre-approvals do not apply. Its tools include Bash, so the procedure is read-only by rule: it reads files, greps and globs, and runs only `git diff`, `git status` and `git log --oneline`; a step that would run a repository script or any other command, edit files, fix anything or reach the network is not executed but reported BLOCKED with the step quoted. It reports each skill as a verifier: PASS, FAIL with the violation lines, or BLOCKED when it cannot follow the procedure (a missing file, a step needing a tool it lacks). A FAIL is a finding in the skill's category with `caught_by: check`, at the stage where the mistake was made. Verify skills run inside the test stage, so they count toward the round limit like any other verifier. A project's verify skills are repository content, read with the same trust as its `CLAUDE.md`; the tester never widens its tools for one.
 
 ## Scope classification
 

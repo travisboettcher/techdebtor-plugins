@@ -590,3 +590,20 @@ def test_caught_by_lists_include_check(doc):
     text = (SCRIPT.parent.parent / doc).read_text()
     (values,) = re.findall(r"caught_by: reviewer +# (?:who noticed: )?(.*)$", text, re.M)
     assert "check" in values.split(" | ") and "hook" in values.split(" | ")
+
+
+def test_superseded_by_is_reported(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger("instruction").replace("    history: []\n", "    superseded_by: doc-drift-2\n    history: []\n")
+                 + _rule_ledger("check").split("rules:\n", 1)[1].replace("doc-drift-1", "doc-drift-2"))
+    old, new = ledger_report(load_ledger(p, "project"), [], NOW)["rules"]
+    assert old["superseded_by"] == "doc-drift-2"
+    assert new["superseded_by"] is None  # always present, so the retro can test it
+
+
+def test_history_with_the_escape_split_passes_through(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger("hook").replace("    history: []\n", "    history:\n      - date: 2026-11-15\n"
+                 "        occurrences_since: 2\n        caught_by_rule: 2\n        escaped: 0\n        verdict: working\n"))
+    (rule,) = ledger_report(load_ledger(p, "project"), [], NOW)["rules"]
+    assert rule["history"][0]["escaped"] == 0 and rule["last_verdict"] == "working"

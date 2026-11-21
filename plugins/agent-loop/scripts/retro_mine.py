@@ -1080,7 +1080,8 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
         try:
             added = _iso_date(r.get("added"))
         except ValueError as e:
-            rules.append({**r, "error": str(e), "occurrences_since": None, "caught_by_rule": None,
+            rules.append({**r, "superseded_by": r.get("superseded_by"), "error": str(e),
+                          "occurrences_since": None, "caught_by_rule": None,
                           "escaped": None, "last_occurrence": None,
                           "records_since_added": None, "days_since_added": None, "last_verdict": None})
             continue
@@ -1103,6 +1104,7 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
         last_hist = history[-1] if history and isinstance(history[-1], dict) else {}
         rules.append({
             **r,
+            "superseded_by": r.get("superseded_by"),  # a higher-rung rule replaced it: never escalated again
             "occurrences_since": occ,
             "caught_by_rule": caught,
             "escaped": occ - caught,

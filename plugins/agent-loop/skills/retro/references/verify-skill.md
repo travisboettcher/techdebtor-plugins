@@ -8,20 +8,19 @@ Project scope: `<repo>/.claude/skills/verify-<category>/SKILL.md`, on the `retro
 
 ## Template
 
-Fill every `<...>`. Keep `allowed-tools` to this list or less: no `Write`, `Edit`, wildcard Bash entry or network tool, so it passes the reviewer's least-privilege check. Drop `paths` only when the rule cannot be tied to file globs.
+Fill every `<...>`. Keep `allowed-tools` to this list or less: no `Write`, `Edit`, wildcard Bash entry or network tool, so it passes the reviewer's least-privilege check. Keep the Input section as it is: it reads the change against a base, never `HEAD` alone. Drop `paths` only when the rule cannot be tied to file globs.
 
 ```markdown
 ---
 name: verify-<category>
 description: Checks that <the rule, in one sentence>. Use when <the files or kinds of change it applies to>, before reporting the change done.
-argument-hint: "[files to check]"
+argument-hint: "[base commit or files to check]"
 paths:
   - "<glob of the files it applies to>"
 allowed-tools:
   - Read
   - Grep
   - Glob
-  - Bash(git diff --name-only HEAD)
   - Bash(git status --porcelain)
 ---
 
@@ -33,12 +32,12 @@ This skill reports. It never edits a file; fixes go back to whoever made the cha
 
 ## Input
 
-The files to check, as named by the caller (`$ARGUMENTS`). With none named, the uncommitted changes: `git diff --name-only HEAD`, plus the untracked files that `git status --porcelain` lists with `??`.
+The change since a base commit: `git diff --name-only <base>`, plus the untracked files that `git status --porcelain` lists with `??`. `<base>` is the base commit the caller names (the `/agent-loop:lead` tester passes the run's base; `$ARGUMENTS` may also name it, or the files to check); if none, `git merge-base HEAD origin/<default>`. Never diff against `HEAD` alone: once the work is committed that diff is empty and the check would pass without seeing anything. Run on its own, `git diff` asks for permission: a pre-approval wide enough for it (`git diff *`) would also admit `--output=<file>`, which writes.
 
 ## Procedure
 
 1. <Which of those files the rule applies to.>
-2. <What to read in each: the change itself, its callers, the matching file elsewhere.>
+2. <What to read in each: the change itself (`git diff <base> -- <file>`), its callers, the matching file elsewhere.>
 3. <What counts as a violation, and what looks like one but is not.>
 
 ## Output
