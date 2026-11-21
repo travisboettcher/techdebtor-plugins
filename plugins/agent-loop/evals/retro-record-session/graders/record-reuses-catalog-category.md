@@ -1,5 +1,5 @@
 ---
-type: tool_used
-tool: Write
-input_match: 'category: generated-file-hand-edit\b'
+type: regex
+target: trace
 ---
+"name":"(?:Write|Bash)","input":\{(?=[^}]*\.claude/runs/)(?=[^}]*category: "?generated-file-hand-edit\b)
