@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Lead: acceptance criteria must be testable (EARS form recommended), each naming its test or verifier; with none, the lead stops and asks instead of inventing them.
+- Lead preflight: a clean tree; a work branch from an up-to-date `origin/<default>`; build, lint and test commands from `CLAUDE.md`, CI and manifests; a baseline test run whose failures are never blamed on the change; generators and their stale-artifact checks, with new files checked against generator globs.
+- Lead plan record: approach and rejected alternative, small ordered units, a test plan from the criteria, risks, out of scope, and a branch budget (about 300 changed lines per unit by default, set in the task text), split by behaviour with tests alongside.
+- Lead per-unit loop: the new `agent-loop:test-writer` agent writes failing tests from the criteria and interfaces only; the implementer makes them pass; the lead reruns them itself; one commit per unit when commits were asked for. A pre-push gate runs what the project's `CLAUDE.md` requires and reports against the baseline. Never merges or pushes to the default branch.
+- Tester: baseline failures that fail the same way are reported as PRE-EXISTING.
+- Run records: optional `plan` (the plan record, or a path to it) and `baseline_failures`; new stages `preflight`, `test-write`, `gate`; `stage: test-write` and `caught_by: test-writer`. Older records stay valid.
+- DESIGN.md: the lead's process, and starter categories `stale-trunk`, `generated-artifact-not-regenerated`, `new-file-matches-generator-glob`, `branch-over-budget`.
+
 ## 0.1.1
 
 - Run records: `caught_by` gains `implementer` (a downstream agent caught a plan or contract defect) and `lead` (the lead caught an agent's mistake); `self` now means only the stage that made the mistake caught it later.
