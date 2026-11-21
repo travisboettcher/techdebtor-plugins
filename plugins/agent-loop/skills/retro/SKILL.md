@@ -6,8 +6,6 @@ allowed-tools:
   - Read
   - Glob
   - Grep
-  - Bash(python3 */scripts/retro_mine.py *)
-  - Bash(python3 "*/scripts/retro_mine.py" *)
   - Bash(git status)
   - Bash(git status *)
   - Bash(git log *)
