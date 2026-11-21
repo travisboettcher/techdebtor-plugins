@@ -460,3 +460,131 @@ def test_cli_end_to_end(tmp_path):
     assert p.returncode == 1
     assert "skipped-independent-review" in p.stderr
     assert "Traceback" not in p.stderr
+
+
+# --- pushed-without-approval: every remote against the snapshot taken at preflight ---
+
+@pytest.fixture
+def remotes(tmp_path, repo):
+    """A repository with two bare remotes, `origin` (holding `work`) and `mirror`."""
+    r, base = repo
+    for name in ("origin", "mirror"):
+        bare = tmp_path / f"{name}.git"
+        _git(tmp_path, "init", "-q", "--bare", str(bare))
+        _git(r, "remote", "add", name, str(bare))
+    _git(r, "push", "-q", "origin", "work")
+    return r, base
+
+
+def _snapshot(capsys, r):
+    code, out = _run(capsys, "remote-snapshot", "--repo", r)
+    assert code == 0, out
+    return out
+
+
+def _remote_record(tmp_path, capsys, r, base, extra=""):
+    return _record(tmp_path, APPROVED, f"base: {base}\n" + _snapshot(capsys, r) + extra)
+
+
+def test_the_snapshot_is_a_record_block_listing_every_remote(capsys, remotes, tmp_path):
+    from retro_mine import parse_yaml_lite
+    r, _ = remotes
+    _git(tmp_path / "origin.git", "update-ref", "refs/pull/1/head", _git(r, "rev-parse", "HEAD"))
+    snap = parse_yaml_lite(_snapshot(capsys, r))["remotes"]
+    assert snap["hash"].startswith("sha256:") and len(snap["hash"]) == 71
+    assert any(x.startswith("origin refs/heads/work ") for x in snap["refs"])
+    assert not any("refs/pull/" in x for x in snap["refs"]), "pull request refs are the host's, not pushes"
+    assert _snapshot(capsys, r) == _snapshot(capsys, r)
+
+
+def test_unchanged_remotes_pass(tmp_path, capsys, remotes):
+    r, base = remotes
+    assert _check(capsys, _remote_record(tmp_path, capsys, r, base), "--repo", r)[0] == 0
+
+
+def test_a_push_under_another_name_then_rebased_away_is_caught(tmp_path, capsys, remotes):
+    r, base = remotes
+    rec = _remote_record(tmp_path, capsys, r, base)
+    _git(r, "switch", "-q", "-c", "stack-1")
+    sha = _commit(r, "unit 1", "2026-11-21T13:00:00+00:00", "b.txt")
+    _git(r, "push", "-q", "origin", "HEAD:refs/heads/sneaky")
+    _commit(r, "fixup! unit 1", "2026-11-21T13:05:00+00:00", "c.txt")
+    _git(r, "-c", "sequence.editor=true", "rebase", "-q", "-i", "--autosquash", base,
+         date="2026-11-21T13:06:00+00:00")
+    assert _git(r, "rev-parse", "--short", "HEAD") != sha
+    code, out = _check(capsys, rec, "--repo", r)
+    assert code == 4
+    assert "pushed-without-approval" in out and "origin refs/heads/sneaky" in out
+
+
+def test_a_push_to_a_second_remote_is_caught(tmp_path, capsys, remotes):
+    r, base = remotes
+    rec = _remote_record(tmp_path, capsys, r, base)
+    _git(r, "push", "-q", "mirror", "work:refs/heads/elsewhere")
+    code, out = _check(capsys, rec, "--repo", r)
+    assert code == 4 and "mirror refs/heads/elsewhere" in out
+
+
+@pytest.mark.parametrize("change", ["moved", "deleted", "tag"])
+def test_changed_deleted_and_new_refs_are_caught(tmp_path, capsys, remotes, change):
+    r, base = remotes
+    rec = _remote_record(tmp_path, capsys, r, base)
+    if change == "moved":
+        _commit(r, "more", "2026-11-21T13:00:00+00:00", "d.txt")
+        _git(r, "push", "-q", "origin", "work")
+    elif change == "deleted":
+        _git(r, "push", "-q", "origin", ":work")
+    else:
+        _git(r, "tag", "v1")
+        _git(r, "push", "-q", "origin", "v1")
+    code, out = _check(capsys, rec, "--repo", r)
+    assert code == 4 and "pushed-without-approval" in out
+
+
+def test_an_approved_push_of_the_stack_is_explained(tmp_path, capsys, remotes):
+    r, base = remotes
+    rec = _remote_record(tmp_path, capsys, r, base, "pushed:\n  - stack-1\n")
+    _git(r, "switch", "-q", "-c", "stack-1")
+    _commit(r, "unit 1", "2026-11-21T13:00:00+00:00", "b.txt")
+    _git(r, "push", "-q", "-u", "origin", "stack-1")
+    assert _check(capsys, rec, "--repo", r)[0] == 0
+    _git(r, "push", "-q", "origin", "stack-1:refs/heads/stack-1-copy")
+    code, out = _check(capsys, rec, "--repo", r)
+    assert code == 4 and "stack-1-copy" in out
+
+
+def test_a_push_without_approval_outranks_everything(tmp_path, capsys, remotes):
+    r, base = remotes
+    rec = _record(tmp_path, DONE, f"base: {base}\n" + _snapshot(capsys, r))
+    _git(r, "push", "-q", "origin", "work:refs/heads/sneaky")
+    assert _check(capsys, rec, "--repo", r, "--require-plan-approval")[0] == 4
+
+
+def test_a_tampered_snapshot_cannot_be_checked(tmp_path, capsys, remotes):
+    r, base = remotes
+    snap = _snapshot(capsys, r)
+    body = snap.replace("refs/heads/work", "refs/heads/other")
+    rec = _record(tmp_path, APPROVED, f"base: {base}\n" + body)
+    code, out = _check(capsys, rec, "--repo", r)
+    assert code == 2 and "hash" in out
+
+
+def test_an_unreachable_remote_cannot_be_checked(tmp_path, capsys, remotes):
+    r, base = remotes
+    rec = _remote_record(tmp_path, capsys, r, base)
+    _git(r, "remote", "set-url", "mirror", str(tmp_path / "gone.git"))
+    assert _check(capsys, rec, "--repo", r)[0] == 2
+
+
+def test_remote_diff_compares_any_saved_snapshot(tmp_path, capsys, remotes):
+    # The dispatcher keeps its own snapshot, taken before any lead started, and compares with it.
+    r, _ = remotes
+    saved = tmp_path / "dispatch-snapshot.yml"
+    saved.write_text(_snapshot(capsys, r))
+    assert _run(capsys, "remote-diff", saved, "--repo", r)[0] == 0
+    _git(r, "switch", "-q", "-c", "stack-1")
+    _git(r, "push", "-q", "origin", "stack-1")
+    assert _run(capsys, "remote-diff", saved, "--repo", r, "--pushed", "stack-1")[0] == 0
+    _git(r, "push", "-q", "origin", "stack-1:refs/heads/sneaky")
+    code, out = _run(capsys, "remote-diff", saved, "--repo", r, "--pushed", "stack-1")
+    assert code == 4 and "refs/heads/sneaky" in out

@@ -22,6 +22,20 @@ override the record's ``base`` and ``trunk``.
   not be authored before it. Author dates are advisory: a rebase with
   ``--reset-author`` or ``--ignore-date`` rewrites them.
 
+- ``pushed-without-approval``: with ``remotes`` (the snapshot a delegated lead
+  takes at preflight with ``remote-snapshot``), every remote's refs now must
+  match it, except ``refs/heads/<branch>`` for each branch listed in ``pushed``
+  (written only after the human approved the push). Any other new, moved or
+  deleted ref on any remote fails, whoever made it.
+
+``record_gate.py remote-snapshot [--repo DIR]`` prints the ``remotes`` block
+for a record: ``git ls-remote`` of every configured remote, sorted, as
+``<remote> <ref> <sha>`` lines (the host's own pull request refs left out),
+and their sha256. ``record_gate.py remote-diff <file> [--repo DIR] [--pushed
+BRANCH ...]`` compares the ``remotes`` block of any file (a record, or the
+dispatcher's own snapshot) with the remotes now. Both run ``git ls-remote``,
+which reaches the network.
+
 ``delegated`` must be ``true`` or ``false`` when present; any other value
 cannot be checked and still requires the approval.
 
@@ -30,7 +44,9 @@ reports and are not gated.
 
 Exit codes: 0 pass; 1 review missing or stale; 2 cannot check (git missing,
 not a repository, unknown or rebased-away base, unparsable output, unreadable
-record); 3 skipped plan approval. When several apply: 3, then 2, then 1.
+record, an unreachable remote, a snapshot whose hash does not match its refs);
+3 skipped plan approval; 4 pushed without approval. When several apply: 4,
+then 3, then 2, then 1.
 Standard library only; reads the record with retro_mine's YAML subset parser.
 """
 
@@ -53,6 +69,9 @@ NOT_DONE = ("in-progress", "abandoned")
 RUNS_EXCLUDE = ":(top,exclude).claude/runs"
 HUMAN_APPROVAL = ("the human's approval of the plan (in a delegated run, the human's own answer relayed by the "
                   "dispatcher and marked as theirs; an agent's approval never counts)")
+
+
+HOST_REFS = ("refs/pull/", "refs/merge-requests/")  # made by the host when a pull request opens
 
 
 class CannotCheck(Exception):
@@ -157,6 +176,67 @@ def run_commits(repo: str, base: str, trunk: str | None) -> list[tuple[str, date
     return commits
 
 
+def remote_refs(repo: str) -> list[str]:
+    """``<remote> <ref> <sha>`` for every ref of every configured remote, sorted."""
+    names = _git(repo, "remote").decode("utf-8", "replace").split()
+    refs = []
+    for name in names:
+        out = _git(repo, "ls-remote", "--end-of-options", name)
+        for line in out.decode("utf-8", "replace").splitlines():
+            sha, sep, ref = line.partition("\t")
+            if not sep or not _is_sha(sha) or not ref or " " in ref:
+                raise CannotCheck(f"unparsable git ls-remote output: {line[:80]!r}")
+            if not ref.startswith(HOST_REFS):
+                refs.append(f"{name} {ref} {sha}")
+    return sorted(refs)
+
+
+def refs_hash(refs: list[str]) -> str:
+    return "sha256:" + hashlib.sha256("\n".join(refs).encode("utf-8")).hexdigest()
+
+
+def snapshot_block(refs: list[str]) -> str:
+    lines = ["remotes:", f'  hash: "{refs_hash(refs)}"']
+    lines += ["  refs:"] + [f'    - "{r}"' for r in refs] if refs else ["  refs: []"]
+    return "\n".join(lines) + "\n"
+
+
+def remote_failures(repo: str, snap, pushed) -> list[str]:
+    """Every new, moved or deleted remote ref since ``snap`` that ``pushed`` does not explain.
+    Raises CannotCheck for a malformed or tampered snapshot, or an unreachable remote."""
+    if not isinstance(snap, dict) or not isinstance(snap.get("refs"), list) \
+            or not all(isinstance(r, str) for r in snap["refs"]):
+        raise CannotCheck("`remotes` must hold `hash` and a `refs` list (record_gate.py remote-snapshot)")
+    before_refs = sorted(snap["refs"])
+    if str(snap.get("hash", "")).strip() != refs_hash(before_refs):
+        raise CannotCheck("`remotes.hash` does not match `remotes.refs`; the snapshot was changed")
+    if pushed is None:
+        pushed = []
+    if not isinstance(pushed, list) or not all(isinstance(b, str) for b in pushed):
+        raise CannotCheck("`pushed` must be a list of branch names")
+    allowed = {f"refs/heads/{b}" for b in pushed}
+
+    def table(refs):
+        out = {}
+        for r in refs:
+            parts = r.split(" ")
+            if len(parts) != 3:
+                raise CannotCheck(f"unparsable snapshot entry: {r[:80]!r}")
+            out[(parts[0], parts[1])] = parts[2]
+        return out
+
+    before, now = table(before_refs), table(remote_refs(repo))
+    failures = []
+    for key in sorted(set(before) | set(now)):
+        old, new = before.get(key), now.get(key)
+        if old == new or (new is not None and key[1] in allowed):
+            continue
+        what = "new" if old is None else "deleted" if new is None else "moved"
+        failures.append(f"pushed-without-approval: {key[0]} {key[1]} is {what} since the snapshot "
+                        "and no approved push explains it.")
+    return failures
+
+
 # --- the gates ----------------------------------------------------------------
 
 def review_failures(rec: dict) -> list[str]:
@@ -231,7 +311,7 @@ def check(args) -> int:
     repo = args.repo or "."
     base = args.base or (str(rec["base"]) if rec.get("base") is not None else None)
     trunk = args.trunk or (str(rec["trunk"]) if rec.get("trunk") is not None else None)
-    review, approval, cannot = [], [], []
+    review, approval, cannot, pushes = [], [], [], []
 
     # A malformed `delegated` cannot be checked, and is treated as delegated so it never loosens the gate.
     delegated = rec.get("delegated", False)
@@ -258,10 +338,20 @@ def check(args) -> int:
     except CannotCheck as e:
         cannot.append(str(e))
 
-    for f in approval + review:
+    if "remotes" in rec:
+        try:
+            pushes = remote_failures(repo, rec["remotes"], rec.get("pushed"))
+        except CannotCheck as e:
+            cannot.append(str(e))
+
+    for f in pushes + approval + review:
         print(f"record_gate: FAIL {f}", file=sys.stderr)
     for c in cannot:
         print(f"record_gate: cannot check: {c}", file=sys.stderr)
+    if pushes:
+        print("record_gate: not done: something was pushed without the human's approval; stop and report it.",
+              file=sys.stderr)
+        return 4
     if approval:
         print("record_gate: not done: stop and report the skipped plan approval to the human.", file=sys.stderr)
         return 3
@@ -273,6 +363,27 @@ def check(args) -> int:
               file=sys.stderr)
         return 1
     print("record_gate: pass")
+    return 0
+
+
+def remote_diff(args) -> int:
+    try:
+        rec = parse_yaml_lite(Path(args.file).read_text(encoding="utf-8"))
+        if not isinstance(rec, dict) or "remotes" not in rec:
+            raise YamlLiteError("no `remotes` block")
+        pushed = list(rec.get("pushed") or []) + list(args.pushed)
+        failures = remote_failures(args.repo, rec["remotes"], pushed)
+    except (OSError, UnicodeDecodeError, YamlLiteError, TypeError) as e:
+        print(f"record_gate: cannot check: cannot read {args.file}: {e}", file=sys.stderr)
+        return 2
+    except CannotCheck as e:
+        print(f"record_gate: cannot check: {e}", file=sys.stderr)
+        return 2
+    for f in failures:
+        print(f"record_gate: FAIL {f}", file=sys.stderr)
+    if failures:
+        return 4
+    print("record_gate: remotes unchanged, apart from approved pushes")
     return 0
 
 
@@ -289,7 +400,22 @@ def main(argv=None) -> int:
     ck.add_argument("--repo", help="repository (default: current directory)")
     ck.add_argument("--base", help="overrides the record's `base`: the commit the run started from")
     ck.add_argument("--trunk", help="overrides the record's `trunk`: commits reachable from it are not the run's")
+    sn = sub.add_parser("remote-snapshot", help="print the `remotes` block: every remote's refs and their hash")
+    sn.add_argument("--repo", default=".", help="repository (default: current directory)")
+    rd = sub.add_parser("remote-diff", help="compare a saved `remotes` block with the remotes now")
+    rd.add_argument("file", help="a record or snapshot file holding a `remotes` block")
+    rd.add_argument("--repo", default=".", help="repository (default: current directory)")
+    rd.add_argument("--pushed", nargs="*", default=[], help="branches whose push the human approved")
     args = ap.parse_args(argv)
+    if args.cmd == "remote-snapshot":
+        try:
+            print(snapshot_block(remote_refs(args.repo)), end="")
+        except CannotCheck as e:
+            print(f"record_gate: cannot check: {e}", file=sys.stderr)
+            return 2
+        return 0
+    if args.cmd == "remote-diff":
+        return remote_diff(args)
     if args.cmd == "fingerprint":
         try:
             print(fingerprint(args.repo, args.base))
