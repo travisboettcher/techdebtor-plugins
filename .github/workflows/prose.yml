@@ -1,0 +1,64 @@
+name: Prose
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: prose scripts tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install pytest==9.2.0
+      - run: python -m pytest -q -p no:cacheprovider .github/scripts/tests
+
+  vale:
+    name: prose (Vale)
+    runs-on: ubuntu-latest
+    env:
+      VALE_VERSION: "3.28.1"
+      # sha256 of vale_3.28.1_Linux_64-bit.tar.gz, from the release's vale_3.28.1_checksums.txt.
+      VALE_SHA256: "068954ad869ebec24b8dec6ebcd1cbb1fd5f5a83e966a35baedfae8b2cdc093a"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Vale
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/vale"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/vale.tar.gz" \
+            "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
+          echo "${VALE_SHA256}  $dir/vale.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/vale.tar.gz" -C "$dir" vale
+          echo "$dir" >> "$GITHUB_PATH"
+      - name: Run Vale
+        # Relative paths from the repository root: .vale.ini's globs pick each file's style by path.
+        run: |
+          set -euo pipefail
+          vale --version
+          git ls-files -z '*.md' | xargs -0 -r vale --output=JSON --no-exit > "$RUNNER_TEMP/vale.json"
+          python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.json"
+
+  token-budget:
+    name: token budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: python3 .github/scripts/token_budget.py --claude "npx -y @anthropic-ai/claude-code@2.1.322"
