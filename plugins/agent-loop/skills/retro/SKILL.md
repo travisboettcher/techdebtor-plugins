@@ -8,9 +8,6 @@ allowed-tools:
   - Grep
   - Bash(git status)
   - Bash(git status *)
-  - Bash(git log *)
-  - Bash(git diff *)
-  - Bash(git show *)
   - Bash(git rev-parse *)
   - Bash(git symbolic-ref --short refs/remotes/origin/HEAD)
   - Bash(git worktree list)
@@ -31,7 +28,7 @@ Arguments given: `$ARGUMENTS`
 ## Guardrails (apply throughout)
 
 - **No raw transcript text anywhere.** Evidence in proposals, commits, ledger entries and records is either paraphrased or copied from the miner's already-redacted `excerpt` / `preceding_action` fields. Evidence in `framework-proposals.md` is paraphrased only: never copy an `excerpt` there, since it is meant to leave the project. Never open `~/.claude/projects` transcripts directly.
-- **The permission prompts are the human gate.** This skill pre-approves only reading: files, the miner and read-only git. Every file write, `git worktree add`, commit or push asks the human first. Do not try to avoid those prompts (no other tools, scripts or shell tricks to write files or run git).
+- **The permission prompts are the human gate.** This skill pre-approves only reading: files and a short list of read-only git commands (`git log`, `git diff` and `git show` are not on it, since `--output=<file>` makes them write; they ask). The miner is not pre-approved either: a pattern for it would also match a script of the same name planted in any cloned repo, so running it asks for permission once per retro. Every file write, `git worktree add`, commit or push asks the human first. Do not try to avoid those prompts (no other tools, scripts or shell tricks to write files or run git).
 - **At most ~5 proposals per retro**, ordered by recurrence x severity. Everything else is listed under "not proposed".
 - **Prefer deleting or merging rules over adding them.** A rewrite of an unclear rule beats a second rule for the same category.
 - **Never on the default branch, never pushed.** Project changes go on a `retro/YYYY-MM-DD` branch; user changes wait for an explicit yes.

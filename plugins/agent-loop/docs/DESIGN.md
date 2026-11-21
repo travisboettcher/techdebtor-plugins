@@ -118,7 +118,7 @@ Each proposal is classified before it is written:
 
 ## Human gate
 
-`/agent-loop:retro` never edits instructions, hooks or the ledger on the default branch. It writes proposals on a new branch (project scope) or as a reviewable diff (user scope) and stops. The ledger entry is added in the same change as the rule, so merging the rule is what records it. The retro skill pre-approves only reading (files, the miner, read-only git), so every file write, worktree, commit or push it attempts goes through Claude Code's permission prompt: that prompt is part of the gate.
+`/agent-loop:retro` never edits instructions, hooks or the ledger on the default branch. It writes proposals on a new branch (project scope) or as a reviewable diff (user scope) and stops. The ledger entry is added in the same change as the rule, so merging the rule is what records it. The retro skill pre-approves only reading (files and a few read-only git commands; not `git log`/`diff`/`show`, whose `--output=<file>` writes), so every file write, worktree, commit or push it attempts goes through Claude Code's permission prompt: that prompt is part of the gate. Running the miner asks too, once per retro: a pre-approval pattern for `*/scripts/retro_mine.py` would also pre-approve a script of that name planted in any cloned repo.
 
 ## Privacy
 
