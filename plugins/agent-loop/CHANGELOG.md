@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Prose: hedges and filler removed from the skills, agents and DESIGN.md, and three long briefing sentences split into lists, found by the repository's new Vale styles; meaning unchanged.
+- Prose: hedges and filler removed from the skills, agents and DESIGN.md, three long briefing sentences split, and `handles` and `test harness` reworded, found by the repository's new Vale rules (Prompts, Voices, proselint); meaning unchanged.
 
 ## 0.2.0 (2026-11-21)
 
