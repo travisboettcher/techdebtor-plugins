@@ -38,7 +38,7 @@ The model does not learn; the scaffolding around it does. A rule is only an impr
    4. One commit per unit, when commits are allowed (below); fixes in later rounds are separate commits naming the unit.
 
    Isolation limits, stated plainly: the test-writer's tools (Read, Glob, Grep, Write, Edit, Bash) cannot stop it reading the repo. On a unit's first pass the implementation does not exist yet, so the tools plus the brief keep it out. When the lead sends a wrong test back after the implementation exists, isolation rests on instruction only: the brief gives no implementation, and the agent is told not to read the unit's source files, `git diff`, `git log -p` or `git show`. Bash is similarly limited to running tests by instruction, since the project's test command is not known in advance.
-6. **Test and review** of the whole change as before: `agent-loop:tester` runs every verifier; `agent-loop:reviewer` independently reviews the whole diff; at most 3 rounds (or the human's number).
+6. **Test and review** of the whole change as before: `agent-loop:tester` runs every verifier (plus the measurement invariants below when the diff touches tests or measurement); `agent-loop:reviewer` independently reviews the whole diff; at most 3 rounds (or the human's number).
    Rounds count one way: building all units, then test and review, is round 1; each later return to the implementer or test-writer (for confirmed findings or a new gate failure), followed by test and review, is one more. Within a unit, the test-writer gets at most two retries before the lead stops and asks, and each extra pass at the implementer after a failed rerun counts as one round.
 7. **Pre-push gate.** Before reporting done: nothing changed since the last review (its fingerprint, below; else review again first); whatever the project's `CLAUDE.md` requires before a push, plus the generated-artifact checks from preflight, reported against the baseline (new failures, fixed ones, still-failing ones). New failures block "done".
 8. **Record and gate check.** The lead writes the run record, then runs `scripts/record_gate.py` on it (see "Gates"). A failing check blocks "done".
@@ -144,6 +144,29 @@ Exit codes, and what the lead does:
 When several apply, 3 wins over 2, and 2 over 1. Records with `outcome: in-progress` or `abandoned` are not done reports and are not gated.
 
 Limits: the commit check sees only commits, so when the run leaves its change uncommitted the approval check rests on the record alone. Author dates are advisory: a rebase with `--reset-author` or `--ignore-date` rewrites them. The gates are a script the lead runs, not a hook: a hook would also fire on the human's ordinary work outside a lead run.
+
+## Measurement invariants
+
+Verifiers distrust results that look too good or too bad: a loop on a flaky or contaminated measurement costs more than the bug it was looking for. The tester applies these as standing checks whenever the diff touches tests, fixtures, test configuration or runners, coverage or other measurement, or CI test jobs (`agents/tester.md`: its measurement checks and run hygiene). Categories are from `docs/categories.md`.
+
+| Invariant | Category |
+|---|---|
+| A subset run never beats the full run (pass count, coverage). | `measurement-attribution-leak` |
+| Coverage credits a line only when it runs inside a test body, not during setup or import. | `measurement-attribution-leak` |
+| Order independence: failing in the full run and passing alone is an isolation bug; report it, never rerun until green. | `shared-state-false-failures` |
+| A wall of failures means shared state broke until shown otherwise; investigate the first failure. | `shared-state-false-failures` |
+| Tests act as the real client: its role and auth identity, not a convenient token. | `wrong-auth-identity` |
+| No silent allowlists: known failures are listed, each with a reproduction. | `silent-allowlist` |
+| New checks are opt-in locally and report-only in CI at first; the default test run gets no slower. | `new-check-not-opt-in` |
+
+Run hygiene, which the tester applies to every run:
+
+| Rule | Category |
+|---|---|
+| After an aborted heavy run, remove what it started (containers, worktrees, temporary databases) and confirm nothing is left. | `leftover-resources` |
+| Run multi-step scripts with `bash -c`, so behaviour does not depend on the interactive shell. | `shell-portability` |
+
+These live in the tester for now. When the specialist verifiers (issue #3) exist, they move to a dedicated measurement specialist; the tester keeps its other rules.
 
 ## Rules ledger (`rules-ledger.yml`)
 

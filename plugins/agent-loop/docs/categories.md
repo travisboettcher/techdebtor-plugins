@@ -26,16 +26,18 @@ Each entry: the category, what goes wrong, the `stage` where it is usually made 
 
 | Category | What goes wrong | Usually made | Cheapest known rule |
 |---|---|---|---|
-| `measurement-attribution-leak` | A measurement credits the wrong scope, such as coverage collected during setup or import and given to whichever test ran first. | implement | Invariant: a subset run never beats the full run; count only what runs inside a test body. |
-| `shared-state-false-failures` | Tests share state (a database session, a global, a temporary directory), so one failure poisons the rest: a wall of false failures, or a test that fails in the suite and passes alone. | implement | Isolate state per test (roll back per example); in a mass failure, investigate the first failure before believing the rest. |
-| `wrong-auth-identity` | A test or check runs as a convenient identity (an admin, a machine token) instead of the role real clients use, so its results do not match theirs. | implement | Test as the real client's role and credentials. |
+| `measurement-attribution-leak` | A measurement credits the wrong scope, such as coverage collected during setup or import and given to whichever test ran first. | implement | The tester's measurement checks: a subset run never beats the full run; count only what runs inside a test body. |
+| `shared-state-false-failures` | Tests share state (a database session, a global, a temporary directory), so one failure poisons the rest: a wall of false failures, or a test that fails in the suite and passes alone. | implement | Isolate state per test (roll back per example); the tester's measurement checks: in a mass failure, investigate the first failure; failing in the suite and passing alone is reported, never rerun until green. |
+| `wrong-auth-identity` | A test or check runs as a convenient identity (an admin, a machine token) instead of the role real clients use, so its results do not match theirs. | implement | Test as the real client's role and credentials (a tester measurement check). |
+| `silent-allowlist` | Known failures are skipped, deselected or allowlisted without being listed, so a real regression hides among them. | implement | List every known failure with a reproduction (a tester measurement check). |
+| `new-check-not-opt-in` | A new check runs by default locally or blocks CI from the start, slowing the default run or failing work it was not meant to gate yet. | implement | New checks are opt-in locally and report-only in CI at first (a tester measurement check). |
 
 ## Environment
 
 | Category | What goes wrong | Usually made | Cheapest known rule |
 |---|---|---|---|
-| `shell-portability` | A multi-step command depends on the interactive shell (word splitting, globbing, builtins) and does something else there, such as running a whole suite. | implement | Run multi-step scripts with `bash -c`, or as a file with a shebang. |
-| `leftover-resources` | An aborted or finished heavy run left containers, worktrees, temporary databases or processes behind. | test | After any aborted heavy run, remove what it started and check that nothing is left. |
+| `shell-portability` | A multi-step command depends on the interactive shell (word splitting, globbing, builtins) and does something else there, such as running a whole suite. | implement | Run multi-step scripts with `bash -c`, or as a file with a shebang (the tester's run hygiene). |
+| `leftover-resources` | An aborted or finished heavy run left containers, worktrees, temporary databases or processes behind. | test | After any aborted heavy run, remove what it started and check that nothing is left (the tester's run hygiene). |
 
 ## Security
 

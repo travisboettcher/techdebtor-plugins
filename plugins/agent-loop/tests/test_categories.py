@@ -71,3 +71,12 @@ def test_removing_a_catalog_row_is_caught():
         without = "\n".join(l for l in text.splitlines() if not l.startswith(f"| `{name}` |"))
         assert name not in catalog(without)
     assert "over-broad-pre-approval" in used and "doc-drift" in used
+
+
+def test_design_measurement_invariants_use_catalog_names():
+    text = (PLUGIN / "docs/DESIGN.md").read_text()
+    section = text.split("## Measurement invariants", 1)[1].split("\n## ", 1)[0]
+    used = set(re.findall(rf"\| `({NAME})` \|$", section, re.M))
+    assert {"measurement-attribution-leak", "shared-state-false-failures", "wrong-auth-identity",
+            "silent-allowlist", "leftover-resources", "shell-portability", "new-check-not-opt-in"} == used
+    assert used <= set(catalog())
