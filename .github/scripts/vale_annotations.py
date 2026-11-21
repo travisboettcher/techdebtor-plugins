@@ -2,7 +2,9 @@
 """Turn Vale's JSON output into GitHub workflow annotations.
 
 Usage: vale --output=JSON --no-exit <files> > vale.json
-       python3 vale_annotations.py vale.json   (or "-" for stdin)
+       python3 vale_annotations.py vale.json [more.json ...]   ("-" for stdin)
+
+Several outputs are merged before annotating.
 
 Prints one annotation per alert (error -> ::error, warning -> ::warning,
 suggestion -> ::notice) and a summary line. Exit 0 when there are no errors,
@@ -50,20 +52,37 @@ def annotations(results):
         yield severity, path, line, col, check, message
 
 
+class ValeError(ValueError):
+    pass
+
+
+def read_results(path):
+    """Return one Vale JSON output as {path: [alerts]}; raise ValueError for Vale's own error."""
+    text = sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
+    results = json.loads(text)
+    if not isinstance(results, dict):
+        raise ValueError("Vale's output is not a JSON object")
+    if "Code" in results and "Text" in results and not isinstance(results.get("Text"), list):
+        raise ValeError(f"{results['Code']} {results['Text']}")
+    return results
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 1:
-        print("usage: vale_annotations.py <vale.json | ->", file=sys.stderr)
+    if not argv:
+        print("usage: vale_annotations.py <vale.json | -> [more.json ...]", file=sys.stderr)
         return 2
+    merged = {}
     try:
-        text = sys.stdin.read() if argv[0] == "-" else open(argv[0], encoding="utf-8").read()
-        results = json.loads(text)
-        if not isinstance(results, dict):
-            raise ValueError("Vale's output is not a JSON object")
-        if "Code" in results and "Text" in results and not isinstance(results.get("Text"), list):
-            print(f"::error title=Vale::{escape_data(results['Code'])} {escape_data(results['Text'])}")
-            return 2
-        rows = list(annotations(results))
+        for path in argv:
+            for file, alerts in read_results(path).items():
+                if not isinstance(alerts, list):
+                    raise ValueError(f"alerts for {file!r} are not a list")
+                merged.setdefault(file, []).extend(alerts)
+        rows = list(annotations(merged))
+    except ValeError as e:
+        print(f"::error title=Vale::{escape_data(e)}")
+        return 2
     except (OSError, ValueError, RecursionError) as e:
         print(f"::error title=Vale::could not read Vale's JSON output: {escape_data(e)}")
         return 2

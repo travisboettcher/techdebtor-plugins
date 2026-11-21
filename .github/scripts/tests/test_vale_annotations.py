@@ -103,3 +103,20 @@ def test_escaping_is_linear_time():
 def test_deeply_nested_json_fails_cleanly(tmp_path, capsys):
     code, out = run(None, tmp_path, capsys, as_text="[" * 200_000 + "]" * 200_000)
     assert code == 2 and "::error title=Vale::" in out
+
+
+def test_several_outputs_are_merged(tmp_path, capsys):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps({"x.md": [alert(line=4)]}))
+    b.write_text(json.dumps({"x.md": [alert(line=2, severity="error")], "y.md": [alert()]}))
+    assert va.main([str(a), str(b)]) == 1
+    lines = [l for l in capsys.readouterr().out.splitlines() if l.startswith("::")]
+    assert [l.split(",")[:2] for l in lines] == [["::error file=x.md", "line=2"], ["::warning file=x.md", "line=4"],
+                                                 ["::warning file=y.md", "line=3"]]
+
+
+def test_a_vale_error_in_any_output_fails(tmp_path, capsys):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps({}))
+    b.write_text(json.dumps({"Code": "E201", "Text": "bad"}))
+    assert va.main([str(a), str(b)]) == 2
