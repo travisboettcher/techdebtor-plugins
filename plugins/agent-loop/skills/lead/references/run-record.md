@@ -17,7 +17,10 @@ plan:                         # the plan record from step 3 (or a path to it)
   risks: ["..."]
   out_of_scope: ["..."]
   branch_budget: 300
-plan_approved: "2026-11-21T14:05:00+00:00"   # `date -Iseconds` when the plan was approved; n/a when approval was not required
+plan_approved: "2026-11-21T14:05:00+00:00"   # `date -Iseconds` when the human approved the plan; n/a when approval was not required
+base: <sha>                   # <base> from preflight
+trunk: origin/main            # <trunk> from preflight
+reviewed_diff: "sha256:..."   # the fingerprint taken when you briefed the last review
 baseline_failures:            # tests failing on the base before any change; [] when none
   - test: "path::test_name"
     signature: "ExceptionType: one redacted line"
@@ -39,7 +42,7 @@ Rules for the record:
 - A finding is something that went wrong and was caught. Not a summary of the work. A clean run has `findings: []`.
 - Record every finding from every stage and round: test-writer and tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief, a missed preflight check). Do not soften or omit them.
 - `stage` is where the mistake was made, never who caught it; `caught_by` is who caught it. A defect in the change found by anyone is `stage: implement`. A missing or wrong criterion or verifier, a wrong plan, a missed preflight check or a bad brief is `stage: plan`. `stage: test-write` is a wrong test. `caught_by: self` only when the stage that made the mistake caught it later (you, for your own plan); a plan or contract gap an agent reports is `caught_by` that agent (`implementer`, `test-writer`), and an agent's mistake you catch (a deviation, a misreported result, a test that cannot fail) is `caught_by: lead`. `stage: test` / `stage: review` only for mistakes the tester or reviewer made themselves.
-- `stages` lists every stage as it ran: `scripts/record_gate.py` reads it to confirm a `review` followed the last `implement` or `test-write`. Never add a stage that did not run.
+- `stages` lists every stage as it ran, and `reviewed_diff` is the fingerprint you actually took for the last review: `scripts/record_gate.py` checks both. Never add a stage that did not run or a fingerprint you did not take.
 - Reuse an existing category (the catalog and the others you listed in step 1) when one fits. Invent a new kebab-case category only when none does; name the kind of mistake, not the incident (`missing-input-validation`, not `null-in-parse-config`).
 - `outcome`: `completed` when the run finished, `in-progress` only if it stopped part-way, unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.
 - Never put secrets, tokens, private hostnames or personal data in a record.

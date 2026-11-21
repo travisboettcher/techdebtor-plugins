@@ -36,8 +36,8 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 5. **Test.** The `tester` agent runs the project's real verifiers and reports pass/fail with output, separating pre-existing failures. It does not fix code.
 6. **Review.** The `reviewer` agent gets the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
 7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
-8. **Pre-push gate.** A review must have run on the final diff; then whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
-9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record, when the plan was approved, and the baseline failures, then checks it with `scripts/record_gate.py`: the run is not done unless a review followed the last change and no commit predates a required plan approval.
+8. **Pre-push gate.** The final diff must be the one last reviewed; then whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
+9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record, when the plan was approved, and the baseline failures, then checks it with `scripts/record_gate.py`: the run is not done unless the change still matches the fingerprint taken for the last review and no commit of the run predates a required plan approval (yours; in a delegated run, relayed by the delegator).
 
 It never merges and never pushes to the default branch. It commits only if you asked for commits, a branch or a pull request in the session, and pushes or opens a draft pull request only if you asked for that; otherwise it leaves the change uncommitted with the units listed.
 

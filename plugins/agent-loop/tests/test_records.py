@@ -462,5 +462,20 @@ def test_documented_run_record_example_passes_the_gate(doc):
         text.split("## Run record", 1)[1].split("```yaml\n", 1)[1].split("```", 1)[0]
     rec = parse_yaml_lite(example)
     assert "plan_approved" in rec
+    assert {"base", "trunk", "reviewed_diff"} <= set(rec)
+    if doc.startswith("docs"):  # the contract shows real shapes
+        assert len(rec["base"]) == 40
+        assert rec["reviewed_diff"].startswith("sha256:") and len(rec["reviewed_diff"]) == 7 + 64
     assert review_failures(rec) == []
     assert approval_failures(rec, required=True, repo=None, base=None) == []
+
+
+def test_record_with_gate_fields_parses(tmp_path):
+    # base, trunk and reviewed_diff (written for record_gate.py) parse; hex runs may be redacted.
+    _write(tmp_path, "2026-11-21-gate.yml", PLAN_RECORD.replace("baseline_failures:", (
+        'plan_approved: "2026-11-21T14:05:00+00:00"\nbase: 9fceb02d0ae598e95dc970b74767f19372d61af8\n'
+        'trunk: origin/main\nreviewed_diff: "sha256:' + "ab" * 32 + '"\nbaseline_failures:'), 1))
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    assert recs[0]["trunk"] == "origin/main"
+    assert {"base", "reviewed_diff", "plan_approved"} <= set(recs[0])
