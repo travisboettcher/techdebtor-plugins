@@ -356,3 +356,74 @@ def test_non_git_root_falls_back_to_root(tmp_path):
     _write(tmp_path, "2026-11-21-a.yml", RECORD)
     recs, errors = load_run_records(tmp_path)
     assert len(recs) == 1 and errors == []
+
+
+PLAN_RECORD = """\
+schema: 1
+date: 2026-11-21
+task: "Add a --dry-run flag"
+repo: name-of-repo
+outcome: completed
+rounds: 1
+stages: [preflight, plan, test-write, implement, test, review, gate]
+plan:                         # the plan record, inline
+  approach: "Thread a dry_run flag through the exporter."
+  alternative: "A separate dry-run command: rejected, duplicates the option parsing."
+  units:
+    - "flag parsing and help text"
+    - "exporter skips writes when dry_run"
+  risks:
+    - "Callers that open the file before the check."
+  out_of_scope:
+    - "Dry run for import."
+  branch_budget: 300
+baseline_failures:            # failing on the base before any change
+  - tests/test_net.py::test_fetch[ipv6]
+  - "tests/test_slow.py::test_timeout"
+findings:
+  - stage: plan
+    category: branch-over-budget
+    severity: minor
+    detail: "Unit 2 came to 410 changed lines."
+    caught_by: lead
+    fixed: true
+"""
+
+
+def test_record_with_plan_and_baseline_fields_parses(tmp_path):
+    _write(tmp_path, "2026-11-21-plan.yml", PLAN_RECORD)
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    rec = recs[0]
+    plan = rec["plan"]
+    assert plan["alternative"].startswith("A separate dry-run command")
+    assert plan["units"] == ["flag parsing and help text", "exporter skips writes when dry_run"]
+    assert plan["risks"] == ["Callers that open the file before the check."]
+    assert plan["out_of_scope"] == ["Dry run for import."]
+    assert plan["branch_budget"] == 300
+    assert rec["baseline_failures"] == ["tests/test_net.py::test_fetch[ipv6]", "tests/test_slow.py::test_timeout"]
+    assert rec["stages"][0] == "preflight"
+    since = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    assert category_counts(recs, since)["branch-over-budget"]["count"] == 1
+
+
+def test_record_with_plan_pointer_and_no_baseline_failures_parses(tmp_path):
+    text = PLAN_RECORD.split("plan:")[0] + 'plan: ".claude/runs/2026-11-21-dry-run.plan.md"\nbaseline_failures: []\nfindings: []\n'
+    _write(tmp_path, "2026-11-21-ptr.yml", text)
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    assert recs[0]["plan"] == ".claude/runs/2026-11-21-dry-run.plan.md"
+    assert recs[0]["baseline_failures"] == []
+
+
+@pytest.mark.parametrize("doc", ["docs/DESIGN.md", "skills/lead/references/run-record.md"])
+def test_documented_run_record_example_parses_with_new_fields(doc):
+    # The contract's example, and the lead's copy of it, must stay parseable by the miner
+    # and carry the plan record and baseline fields.
+    text = (SCRIPT.parent.parent / doc).read_text()
+    example = text.split("```yaml\n", 1)[1].split("```", 1)[0] if doc.startswith("skills") else \
+        text.split("## Run record", 1)[1].split("```yaml\n", 1)[1].split("```", 1)[0]
+    rec = parse_yaml_lite(example)
+    assert set(rec["plan"]) >= {"approach", "alternative", "units", "risks", "out_of_scope"}
+    assert isinstance(rec["baseline_failures"], list)
+    assert isinstance(rec["findings"], list)
