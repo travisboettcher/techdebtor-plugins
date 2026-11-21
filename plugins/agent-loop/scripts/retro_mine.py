@@ -1140,7 +1140,7 @@ def ledger_report(ledger: dict | None, records, now: datetime) -> dict | None:
 DEFAULT_SELECTION = Path(__file__).resolve().parent.parent / "docs" / "selection.yml"
 OVERRIDE_SELECTION = Path(".claude") / "agent-loop" / "selection.yml"
 ESCAPE_CATCHERS = ("human", "ci", "hook")
-NOT_TAGS = ("baseline", "verify-skills")  # what else may select a specialist (`by`)
+NOT_TAGS = ("baseline", "verify-skills", "escalation")  # what else may select a specialist (`by`)
 
 
 def _names(value) -> list[str]:
@@ -1287,7 +1287,7 @@ def _run_tags(rec: dict, selection: list) -> set[str]:
 
 def _chosen(selection: list) -> dict[str, dict]:
     """Per chosen specialist: the tags that selected it and the first round it ran. An entry is a
-    ``{specialist, by}`` mapping (``by``: the tags, ``baseline`` or ``verify-skills``) or, in the plain form, a name."""
+    ``{specialist, by}`` mapping (``by``: the tags, or ``baseline``, ``verify-skills`` or ``escalation``) or, in the plain form, a name."""
     out: dict[str, dict] = {}
     for entry in selection:
         rnd = entry.get("round") if _whole(entry.get("round")) else 1

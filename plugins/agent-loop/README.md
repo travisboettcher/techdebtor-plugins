@@ -55,7 +55,9 @@ lead ─┬─► tester (coordinator) ── verification: run things, collect 
 
 Each specialist is its own agent with one narrow job, the fewest tools that work and a shared report format. The lead tags each unit with risk tags; a selection table ([`docs/selection.yml`](docs/selection.yml), shown in [`docs/DESIGN.md`](docs/DESIGN.md)) maps tags to specialists, on top of a baseline that always runs. Each coordinator says which specialists it chose and why, runs light ones in parallel and heavy ones (full suites, fuzzing, mutation, system and performance runs) one at a time within a per-run budget, and merges duplicate findings before the lead sees them. A specialist whose tool is missing reports BLOCKED and names it; it never installs anything (a readiness audit of the repository finds those gaps).
 
-New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also change the budget and which specialists each tag runs:
+When no unit has a risk tag, the lead skips the coordinators and runs the baseline pair directly. The specialists' shared rules and report formats are in [`docs/specialists/`](docs/specialists).
+
+New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also tune the defaults below and add specialists to a tag. It cannot remove a tag's floor (the safeguards that always ran: least privilege for `permissions`, regex timing for `regex`, the measurement audit for `test-infra`, the security reviewer for `untrusted-input` and `security-sensitive`), change the baseline, or raise the budget past its ceiling; such entries are reported and ignored.
 
 ```yaml
 schema: 1
@@ -66,7 +68,17 @@ tags:
     run: [system-tester, api-reviewer]
 ```
 
-The retro measures each specialist (precision, and misses by tag) and proposes changes to that file behind the same human gate as any rule.
+Tunable defaults, all in [`docs/selection.yml`](docs/selection.yml):
+
+| Setting | Default | Override |
+|---|---|---|
+| `budget.heavy_runs` | 6 heavy specialist runs per lead run | up to `budget_max` (12) |
+| `budget.heavy_minutes` | 60 minutes of heavy specialists per lead run | up to `budget_max` (120) |
+| `retro.drop_after_runs` | 5 runs of a specialist for a tag with no findings before the retro proposes dropping it | any whole number from 1 |
+| `retro.add_after_escapes` | 2 runs with a tag where a category escaped before the retro proposes adding its specialist | any whole number from 1 |
+| `tags.<tag>.run` | the table in DESIGN.md | add or drop specialists above the floor |
+
+The retro measures each specialist (precision, misses that escaped the swarm, and overlap with other specialists, by tag) and proposes changes to that file behind the same human gate as any rule.
 
 ### `/agent-loop:retro`: the feedback loop
 

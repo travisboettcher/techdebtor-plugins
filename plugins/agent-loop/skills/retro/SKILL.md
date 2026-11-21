@@ -50,13 +50,13 @@ Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats)
 
 Windows (`window`): the miner reads every run record in every worktree of the project whatever `--since` says, so each rule's `occurrences_since` already covers all records since its `added` date; only `category_counts` and `run_records.records` are limited to the requested window (`window.since`). Transcript signals reach further back: to the `added` date of the oldest ledger rule, at most 90 days (`window.transcripts_since`, with the reason in `window.transcripts_extended_for`). Signals older than `window.since` are there to verify ledger rules (step 2); do not count them toward new proposals (steps 3-4).
 
-`specialists` measures the verification and review specialists from every run record with a `selection`: `selection` (the table's paths and any `errors` in the project's override), `by_specialist` (per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses` (findings in its own categories, in a run that chose it, that it did not report), `miss_rate`, and the same counts `by_tag`), and `by_tag` (per tag: `runs` and the categories `escaped` to the human or CI).
+`specialists` measures the verification and review specialists from every run record with a `selection`: `selection` (the table's paths, its `retro` thresholds and any `errors` in the project's override), `by_specialist` (per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses` (findings in its own categories, in a run that chose it, that it did not report and that escaped the swarm: caught by the human, CI or a hook, or in a later round), `miss_rate`, `overlap` (the same, caught by another specialist in the same round), and those counts `by_tag` for the tags that selected it), and `by_tag` (per tag: `runs` and the categories that `escaped`).
 
 Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was just caution) before counting.
 
 ### 2. Verify every ledger rule
 
-For each rule in both ledgers, add to the run-record escapes (`escaped`) any signals that clearly belong to the rule's category and are dated after `added`; a signal is always an escape. `caught_by_rule` counts findings a `hook` or `check` rule caught itself, or a `selection` rule's specialist reported: the rule fired, and those never make it `recurring`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
+For each rule in both ledgers, add to the run-record escapes (`escaped`) any signals that clearly belong to the rule's category and are dated after `added`; a signal is always an escape. `caught_by_rule` counts findings a `hook` or `check` rule caught itself, or a `selection` rule's added specialist reported (for a `change: drop` rule, the findings the swarm still caught): the rule fired, and those never make it `recurring`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
 
 | Verdict | When | Action |
 |---|---|---|
@@ -87,11 +87,11 @@ Scope:
 - `framework`: would help anyone using these plugins (a missing review specialist check, a better lead prompt, a change to the default selection table, a new catalog category with its description, usual stage and cheapest rule).
 
 **Selection table.** From `specialists`, also consider (ranked with the rest, counting toward the five):
-- *Drop* a specialist from a tag when it ran for that tag in at least 5 runs and found nothing there; heavy ones first, since they cost the most.
-- *Add* a specialist to a tag when a category escaped (`by_tag.<tag>.escaped`) in two or more runs with that tag and the specialist that owns the category (its `categories` in the table) was not chosen; or *enable* an opt-in one that owns it.
+- *Drop* a specialist from a tag when it ran for that tag in at least `retro.drop_after_runs` runs and found nothing there; heavy ones first, since they cost the most. A tag's `floor` cannot be dropped; high `overlap` with another specialist is a reason to prefer the drop.
+- *Add* a specialist to a tag when a category escaped (`by_tag.<tag>.escaped`) in at least `retro.add_after_escapes` runs with that tag and the specialist that owns the category (its `categories` in the table) was not chosen; or *enable* an opt-in one that owns it.
 - A specialist with low `precision` (most of its findings rejected) or a high `miss_rate` needs its brief rewritten, not a table change: a framework proposal.
 - Override `errors` are reported as found, not proposed around.
-The change goes in the project's `.claude/agent-loop/selection.yml` (create it as `schema: 1` if missing; its shape is DESIGN.md's "Specialists"), with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds or drops, and `location: ".claude/agent-loop/selection.yml"`. A change the plugin's default table needs in every project is framework scope.
+The change goes in the project's `.claude/agent-loop/selection.yml` (create it as `schema: 1` if missing; its shape is DESIGN.md's "Specialists"), with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds or drops (`change: drop` for a drop), and `location: ".claude/agent-loop/selection.yml"`. A change the plugin's default table needs in every project is framework scope.
 
 Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path; for a `selection`, the override file), `specialist` (a `selection` rule only), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 

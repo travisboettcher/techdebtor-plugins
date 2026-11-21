@@ -81,24 +81,50 @@ def test_review_specialists_are_all_light():
     assert {s["weight"] for s in SPECIALISTS.values() if s["pool"] == "reviewer"} == {"light"}
 
 
+SHARED = {"tester": PLUGIN / "docs/specialists/verification-rules.md",
+          "reviewer": PLUGIN / "docs/specialists/review-rules.md"}
+
+
 @pytest.mark.parametrize("name", sorted(SPECIALISTS))
-def test_specialists_use_their_pools_shared_report(name):
+def test_specialists_point_to_their_pools_shared_rules(name):
     _, body = agent(name)
-    heading = "## Verification report" if SPECIALISTS[name]["pool"] == "tester" else "## Review report"
-    assert heading in body and f"Specialist: {name}" in body
-    if SPECIALISTS[name]["pool"] == "reviewer":
-        assert "failure scenario:" in body and "location: <path>:<line>" in body
+    pool = SPECIALISTS[name]["pool"]
+    mine, other = SHARED[pool], SHARED["reviewer" if pool == "tester" else "tester"]
+    assert str(mine.relative_to(PLUGIN)) in body and str(other.relative_to(PLUGIN)) not in body
+    assert "## Rules\n" not in body and "## Report\n" not in body, "the shared file holds them"
+    assert f"agent-loop:{pool}" in body
+
+
+@pytest.mark.parametrize("pool", ["tester", "reviewer"])
+def test_shared_rules_and_reports(pool):
+    text = SHARED[pool].read_text()
+    if pool == "tester":
+        assert "## Verification report" in text and "PASS | FAIL | PRE-EXISTING | BLOCKED | UNVERIFIED" in text
+        assert "Change nothing in the repository" in text and "Never install anything" in text
+        assert "BLOCKED" in text and "`<base>`" in text and "bash -c" in text and "timeout" in text
     else:
-        assert "PASS | FAIL | PRE-EXISTING | BLOCKED | UNVERIFIED" in body
-    assert f"agent-loop:{SPECIALISTS[name]['pool']}" in body
+        assert "## Review report" in text and "failure scenario:" in text and "location: <path>:<line>" in text
+        assert "Read only" in text and "Escalate:" in text and "Focus section" in text
+    assert "Specialist: <your name>" in text
 
 
-@pytest.mark.parametrize("name", sorted(n for n, s in SPECIALISTS.items() if s["pool"] == "tester"))
-def test_verification_specialists_never_install_and_report_blocked(name):
-    _, body = agent(name)
-    assert "Change nothing in the repository" in body
-    if name != "check-runner":
-        assert "Never install anything" in body and "BLOCKED" in body and "`<base>`" in body
+@pytest.mark.parametrize("coordinator, pool", COORDINATORS.items())
+def test_coordinators_pass_the_shared_rules_on(coordinator, pool):
+    _, body = agent(coordinator)
+    assert str(SHARED[pool].relative_to(PLUGIN)) in body and "the shared rules path" in body
+
+
+def test_the_correctness_reviewer_sweeps_for_security_and_escalates():
+    _, body = agent("correctness-reviewer")
+    assert "Security sweep" in body and "`security-reviewer` under Escalate" in body
+    _, coord = agent("reviewer")
+    assert "escalat" in coord
+
+
+def test_the_tester_never_starts_heavy_work_without_budget_and_blocking_wins():
+    _, body = agent("tester")
+    assert "0 or less" in body and "budget_max" in body
+    assert "report-only only if every source was" in body and "[report-only]" in body
 
 
 def test_the_moved_standing_checks_kept_their_text():

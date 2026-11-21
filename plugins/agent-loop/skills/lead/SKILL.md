@@ -37,7 +37,7 @@ If the task is ambiguous in a way that changes what gets built, ask the human no
 Write the plan record:
 - **Approach**, and the main alternative you rejected, with why.
 - **Units**: small and ordered, each split by behaviour and within the branch budget (added plus removed lines, excluding generated artifacts and lockfiles), with its tests in the same unit; never a "code" unit and a separate "tests" unit. For each: what changes, the files, its criteria with their verifiers, the verify skills chosen for its files (read `${CLAUDE_SKILL_DIR}/references/verify-skills.md` to find and choose them), its risk tags, and which units it depends on.
-- **Risk tags**: give each unit every tag whose `when` fits, from the `tags` in `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml` and `.claude/agent-loop/selection.yml` (if it exists); none is fine. They pick the specialists that check it beyond the always-run baseline.
+- **Risk tags**: give each unit every tag whose `when` fits or whose `files` signal its files show, from the `tags` in `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml` and `.claude/agent-loop/selection.yml` (if it exists); none is fine. They pick the specialists that check it beyond the always-run baseline.
 - **Test plan**: each criterion, its test, and the unit that adds it.
 - **Risks**, and what is **out of scope**.
 
@@ -56,15 +56,17 @@ Units run one at a time, in plan order. Never run heavy jobs in parallel (full b
 
 ## 5. Test
 
-Brief the `agent-loop:tester` coordinator with: the acceptance criteria and their verifiers; `<base>` and the changed files (`git diff --stat <base>` plus untracked files); each unit's tags; the chosen verify skills' paths; the baseline failures (IDs and signatures) and wall time; the remaining budget (the table's `budget`, or the task's numbers, less what earlier reports used); the selection table paths (`${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`, and `.claude/agent-loop/selection.yml` if it exists); the round; and the rules brief. It picks verification specialists from the tags, runs them within the budget and returns one merged report saying which it chose and why.
+Brief the `agent-loop:tester` coordinator with: the acceptance criteria and their verifiers; `<base>` and the changed files (`git diff --stat <base>` plus untracked files); each unit's tags; the chosen verify skills' paths; the baseline failures (IDs and signatures) and wall time; the remaining budget (the table's or the task's, never over `budget_max`, less what earlier reports used); the paths `${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`, `.claude/agent-loop/selection.yml` (if it exists) and `${CLAUDE_PLUGIN_ROOT}/docs/specialists/`; the round; and the rules brief. It returns one merged report saying which specialists it chose and why.
+
+**Fast path.** With no unit tags, no tag's `files` signal in the changed files, and nothing enabled by the override, skip both coordinators: brief `agent-loop:test-runner` as above (no budget or table; shared rules `${CLAUDE_PLUGIN_ROOT}/docs/specialists/verification-rules.md`), then at step 6 `agent-loop:correctness-reviewer` (with `review-rules.md`), and any reviewer it escalates to. Record both pools in `selection`, baseline chosen.
 
 ## 6. Review
 
-Brief the `agent-loop:reviewer` coordinator with only: how to get the whole diff (`git diff <base>` plus any new untracked files), the changed files, the acceptance criteria, each unit's tags, the selection table paths, the round, and the rules brief. Do **not** pass the implementer's or test-writer's reasoning or reports, the tester's report, or your own opinion of the change: the review's value is an independent read.
+Brief the `agent-loop:reviewer` coordinator with only: how to get the whole diff (`git diff <base>` plus any new untracked files), the changed files, the acceptance criteria, each unit's tags, the same paths, the round, and the rules brief. Do **not** pass any agent's reasoning or reports, or your own opinion of the change: the review's value is an independent read.
 
-When you brief it, run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/record_gate.py" fingerprint --base "<base>"` from the repo root and keep its output: it is the record's `reviewed_diff` (the last review's, when there are several), proof of exactly which change was reviewed.
+When the review starts (coordinator or fast path), run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/record_gate.py" fingerprint --base "<base>"` from the repo root and keep its output: it is the record's `reviewed_diff` (the last review's, when there are several), proof of exactly which change was reviewed.
 
-**Both reports.** Verify each finding yourself (read the cited line, rerun the reproduction). List those you can show are wrong under `rejected`, with the reason and the `specialist`. Record each confirmed one with `caught_by: tester` or `reviewer` (`check` for a verify skill's), the report's `specialist` and any `report_only`, at the stage where the mistake was made (`implement`; `test-write` for a wrong test; `plan` for a missing or wrong criterion or verifier). Copy each report's tags, chosen and not-run specialists and budget into the record's `selection`. Report-only findings are shown to the human but start no round.
+**Both reports.** Verify each finding yourself (read the cited line, rerun the reproduction). List those you can show are wrong under `rejected`, with the reason and the `specialist`. Record each confirmed one with `caught_by: tester` or `reviewer` (`check` for a verify skill's), the report's `specialist`, the `round`, and any `report_only`, at the stage where the mistake was made (`implement`; `test-write` for a wrong test; `plan` for a missing or wrong criterion or verifier). Copy each report's tags, chosen specialists (with what selected each), not-run ones and budget into the record's `selection`. Report-only checks and findings are shown to the human but never start a round, block "done" or stop the run.
 
 ## 7. Loop
 
@@ -72,9 +74,9 @@ If the tester or reviewer reported anything you confirmed (report-only findings 
 
 **Counting rounds** (one rule): building all units, then test and review, is round 1. Each later return to the implementer or test-writer (for confirmed tester or reviewer findings, or for a new failure at the gate), followed by verify, test and review, is one more round. Within a unit's build, a rerun that fails goes back to the implementer and the test-writer gets at most two retries; each extra pass at the implementer counts against the same round limit, as one round.
 
-Stop when a round ends with all verifiers passing and no confirmed review findings, or at the round limit. On hitting the limit, stop and report to the human what is still failing; do not keep going.
+Stop when a round ends with all blocking checks passing and no confirmed blocking findings, or at the round limit. On hitting the limit, stop and report to the human what is still failing; do not keep going.
 
-If the tester reports a check BLOCKED (missing tool, spec, credentials, network, broken environment), or a chosen specialist not run for `budget`, stop and ask the human how to proceed; do not send it to the implementer or spend rounds on it, since no code change fixes it. Do not silently drop it or mark its criterion as passed.
+If the tester reports a blocking check BLOCKED (missing tool, spec, credentials, network, broken environment), or a chosen specialist not run for `budget`, stop and ask the human how to proceed; do not send it to the implementer or spend rounds on it, since no code change fixes it. Do not silently drop it or mark its criterion as passed.
 
 ## 8. Pre-push gate
 

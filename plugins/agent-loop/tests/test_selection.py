@@ -509,6 +509,17 @@ def test_the_retro_proposes_selection_changes_as_ledger_rules():
 def test_baseline_and_verify_skills_are_not_tags():
     rec = _rec([], [])
     rec["selection"][0]["chosen"] = [{"specialist": "check-runner", "by": ["verify-skills"]},
-                                     {"specialist": "test-runner", "by": "baseline"}]
+                                     {"specialist": "test-runner", "by": "baseline"},
+                                     {"specialist": "security-reviewer", "by": ["escalation"]}]
     rep = specialist_report([rec], default())["by_specialist"]
     assert rep["check-runner"]["by_tag"] == {} and rep["test-runner"]["by_tag"] == {}
+    assert rep["security-reviewer"]["by_tag"] == {} and rep["security-reviewer"]["runs"] == 1
+
+
+def test_the_lead_has_a_fast_path_and_ignores_report_only_when_halting():
+    text = (PLUGIN / "skills/lead/SKILL.md").read_text()
+    fast = text.split("**Fast path.**", 1)[1].split("\n## ", 1)[0]
+    assert "`agent-loop:test-runner`" in fast and "`agent-loop:correctness-reviewer`" in fast
+    assert "verification-rules.md" in fast and "review-rules.md" in fast and "`files` signal" in fast
+    assert "When the review starts (coordinator or fast path)" in text
+    assert "all blocking checks passing" in text and "blocking check BLOCKED" in text

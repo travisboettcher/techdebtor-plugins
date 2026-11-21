@@ -38,7 +38,7 @@ The model does not learn; the scaffolding around it does. A rule is only an impr
    4. One commit per unit, when commits are allowed (below); fixes in later rounds are separate commits naming the unit.
 
    Isolation limits, stated plainly: the test-writer's tools (Read, Glob, Grep, Write, Edit, Bash) cannot stop it reading the repo. On a unit's first pass the implementation does not exist yet, so the tools plus the brief keep it out. When the lead sends a wrong test back after the implementation exists, isolation rests on instruction only: the brief gives no implementation, and the agent is told not to read the unit's source files, `git diff`, `git log -p` or `git show`. Bash is similarly limited to running tests by instruction, since the project's test command is not known in advance.
-6. **Test and review** of the whole change: the `agent-loop:tester` coordinator runs the baseline verification specialists plus those the tags select (every verifier, the chosen verify skills included); then the `agent-loop:reviewer` coordinator independently reviews the whole diff with the review specialists ("Specialists", below); at most 3 rounds (or the human's number).
+6. **Test and review** of the whole change (on the fast path, with no tags, the lead briefs the baseline `test-runner` and `correctness-reviewer` itself; "Specialists", below): the `agent-loop:tester` coordinator runs the baseline verification specialists plus those the tags select (every verifier, the chosen verify skills included); then the `agent-loop:reviewer` coordinator independently reviews the whole diff with the review specialists ("Specialists", below); at most 3 rounds (or the human's number).
    Rounds count one way: building all units, then test and review, is round 1; each later return to the implementer or test-writer (for confirmed findings or a new gate failure), followed by test and review, is one more. Within a unit, the test-writer gets at most two retries before the lead stops and asks, and each extra pass at the implementer after a failed rerun counts as one round.
 7. **Pre-push gate.** Before reporting done: nothing changed since the last review (its fingerprint, below; else review again first); whatever the project's `CLAUDE.md` requires before a push, plus the generated-artifact checks from preflight, reported against the baseline (new failures, fixed ones, still-failing ones). New failures block "done".
 8. **Record and gate check.** The lead writes the run record, then runs `scripts/record_gate.py` on it (see "Gates"). A failing check blocks "done".
@@ -285,7 +285,7 @@ The coordinators' tools are `Agent`, `Read`, `Glob` and `Grep`: they read the br
 
 ### In run records
 
-`plan.tags` holds each unit's tags. `selection` holds, per coordinator and round, the effective tags, the specialists chosen (each with `by`: the tags that selected it, or `baseline`), those not run with the reason, the budget and what was used. A finding carries `specialist` (one name, or the list of those whose reports were merged) besides `caught_by` (the pool: `tester` or `reviewer`, or `check` for a verify skill), and `round`, the round in which it was caught; `report_only: true` marks one that did not block. A `rejected` entry carries `specialist` too, so precision can be measured. All are optional; records without them stay valid. A verify skill's FAIL is `caught_by: check` with `specialist: check-runner`.
+`plan.tags` holds each unit's tags. `selection` holds, per coordinator and round, the effective tags, the specialists chosen (each with `by`: the tags that selected it, or `baseline`, `verify-skills` or `escalation`; the miner credits only tags), those not run with the reason, the budget and what was used. A finding carries `specialist` (one name, or the list of those whose reports were merged) besides `caught_by` (the pool: `tester` or `reviewer`, or `check` for a verify skill), and `round`, the round in which it was caught; `report_only: true` marks one that did not block. A `rejected` entry carries `specialist` too, so precision can be measured. All are optional; records without them stay valid. A verify skill's FAIL is `caught_by: check` with `specialist: check-runner`.
 
 ### The ledger governs the table
 
@@ -295,7 +295,7 @@ The retro measures each specialist from the run records: per specialist, and per
 
 ## Measurement invariants
 
-Verifiers distrust results that look too good or too bad: a loop on a flaky or contaminated measurement costs more than the bug it was looking for. The `measurement-auditor` specialist applies these whenever a unit is tagged `test-infra` (the diff touches tests, fixtures, test configuration or runners, coverage or other measurement, or CI test jobs). Categories are from `docs/categories.md`.
+Verifiers distrust results that look too good or too bad: a loop on a flaky or contaminated measurement costs more than the bug it was looking for. The `measurement-auditor` specialist applies these whenever a unit is tagged `test-infra`: the diff touches test infrastructure (fixtures, conftest or setup files, test runners, coverage or test configuration, other measurement, CI test jobs). Ordinary new test files do not trigger it, so the common change pays nothing for it. Categories are from `docs/categories.md`.
 
 | Invariant | Category |
 |---|---|

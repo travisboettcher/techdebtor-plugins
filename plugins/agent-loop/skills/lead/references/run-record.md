@@ -34,7 +34,11 @@ selection:                    # from each coordinator's report, per round
   - pool: tester              # tester | reviewer
     round: 1
     tags: [untrusted-input, regex]   # the report's effective tags
-    chosen: [test-runner, fuzzer]
+    chosen:                   # each with what selected it: baseline, verify-skills, escalation, or its tags
+      - specialist: test-runner
+        by: [baseline]
+      - specialist: fuzzer
+        by: [regex]
     not_run:                  # omit when none
       - specialist: mutation-tester
         reason: opt-in        # opt-in | budget
@@ -51,6 +55,7 @@ findings:
     detail: "What went wrong, in one or two sentences."
     caught_by: reviewer       # test-writer | tester | reviewer | implementer | lead | human | ci | hook | check | self
     specialist: docs-reviewer # as the report gives it: one name, or a list when merged
+    round: 1                  # the round in which it was caught
     fixed: true
 rejected:                     # optional: reported findings you showed were wrong
   - stage: review             # here: the stage that reported the wrong finding
