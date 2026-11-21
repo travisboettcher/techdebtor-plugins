@@ -419,7 +419,7 @@ The verification pool reasons about the level each test works at, not only about
 
 `test-strategist` checks the whole, read-only: each criterion's test against its target level, the levels the tags call for, and the pyramid's shape as the count and run time per level from the test runner's report. It runs for every tag in the table above, and for `test-infra` and `test-changes`. A specialist whose tooling is missing (no compatibility tool for a changed schema, no service to integrate with) reports the check BLOCKED, naming what is missing.
 
-**In the plan and the records.** Each criterion in the test plan has a target level (`plan.test_plan`, "Run record"), the lowest that can prove it; the test-writer writes its test at that level, or reports why it cannot. A finding that escaped the swarm or got past a test carries `should_have_caught_at`, the lowest level whose test would have caught it. The retro's miner counts those escapes per level (`test_levels`), next to the criteria planned at each level; repeated escapes at one level become proposals for tests at that level.
+**In the plan and the records.** Each criterion in the test plan has a target level (`plan.test_plan`, "Run record"), the lowest that can prove it; the test-writer writes its test at that level, or reports why it cannot. A finding that escaped the swarm or got past a test carries `should_have_caught_at`, the lowest level whose test would have caught it. The retro's miner counts those escapes per level (`test_levels`), next to the criteria planned at each level; escapes at one level in `retro.add_after_escapes` runs or more become proposals for tests at that level.
 
 ## Measurement invariants
 

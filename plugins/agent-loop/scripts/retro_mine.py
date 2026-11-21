@@ -17,6 +17,10 @@ Standard library only (Python 3.11+). Prints one JSON document to stdout:
   tag, the categories that escaped to the human or CI. From every run record
   with a ``selection``, read against the selection table (docs/selection.yml
   plus the project's .claude/agent-loop/selection.yml).
+- ``test_levels``: from every run record, the criteria planned at each test
+  level (``plan.test_plan``) and, per level, the findings whose
+  ``should_have_caught_at`` names it, how many escaped the swarm and in how
+  many runs, and their categories.
 - ``window``: the windows actually used. Transcript signals reach back past
   ``--since`` to the oldest ledger rule's ``added`` date, at most 90 days, so
   every rule can be verified against signals since it was added.
@@ -1367,6 +1371,50 @@ def specialist_report(records, table: dict) -> dict:
     return {"records": counted, "by_specialist": dict(sorted(by_spec.items())), "by_tag": dict(sorted(by_tag.items()))}
 
 
+LEVELS = ("unit", "component", "contract", "integration", "system")  # DESIGN.md, "Test levels"
+
+
+def level_report(records) -> dict:
+    """Test levels across every run record: ``planned``, the criteria in each plan's
+    ``test_plan`` per target level; ``by_level``, the findings whose ``should_have_caught_at``
+    names a level, how many escaped the swarm (as ``_escaped`` with round 1 as the first) and in
+    how many runs, and their categories. A level that is not one of ``LEVELS`` is counted under
+    ``invalid`` and never echoed."""
+    planned: dict[str, int] = {}
+    by_level: dict[str, dict] = {}
+    invalid = 0
+    for rec in records:
+        plan = rec.get("plan")
+        entries = plan.get("test_plan") if isinstance(plan, dict) else None
+        for e in entries if isinstance(entries, list) else []:
+            level = e.get("level") if isinstance(e, dict) else None
+            if level in LEVELS:
+                planned[level] = planned.get(level, 0) + 1
+            elif level is not None:
+                invalid += 1
+        escaped_here: set[str] = set()
+        for f in _findings(rec):
+            level = f.get("should_have_caught_at")
+            if level is None:
+                continue
+            if level not in LEVELS:
+                invalid += 1
+                continue
+            b = by_level.setdefault(level, {"findings": 0, "escaped": 0, "runs_escaped": 0, "categories": {}})
+            b["findings"] += 1
+            if _escaped(f, 1):
+                b["escaped"] += 1
+                escaped_here.add(level)
+            cat = f.get("category")
+            if isinstance(cat, str) and cat:
+                b["categories"][cat] = b["categories"].get(cat, 0) + 1
+        for level in escaped_here:
+            by_level[level]["runs_escaped"] += 1
+    order = {lvl: i for i, lvl in enumerate(LEVELS)}
+    return {"levels": list(LEVELS), "planned": dict(sorted(planned.items(), key=lambda kv: order[kv[0]])),
+            "by_level": dict(sorted(by_level.items(), key=lambda kv: order[kv[0]])), "invalid": invalid}
+
+
 TRANSCRIPT_LOOKBACK_MAX = timedelta(days=90)
 
 
@@ -1475,6 +1523,7 @@ def main(argv=None) -> int:
         },
         "specialists": {"selection": {k: v for k, v in selection.items() if k != "table"},
                         **specialist_report(records, selection["table"])},
+        "test_levels": level_report(records),
     }
     json.dump(out, sys.stdout, indent=1, ensure_ascii=False)
     sys.stdout.write("\n")

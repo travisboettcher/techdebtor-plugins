@@ -10,7 +10,7 @@ budget_max:                   # the ceiling no override can raise
   heavy_minutes: 120
 retro:                        # thresholds for the retro's selection proposals; an override may change them
   drop_after_runs: 5          # propose dropping a specialist from a tag after this many runs there with no findings
-  add_after_escapes: 2        # propose adding one after its category escaped this many runs with the tag
+  add_after_escapes: 2        # propose adding one after its category escaped this many runs with the tag; also tests at a level escaped this many runs
 specialists:                  # pool: tester (verification) | reviewer (review); weight: light runs in parallel, heavy one at a time
   test-runner:
     pool: tester

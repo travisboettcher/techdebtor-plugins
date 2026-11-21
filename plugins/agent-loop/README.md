@@ -77,7 +77,7 @@ Tunable defaults, all in [`docs/selection.yml`](docs/selection.yml):
 | `budget.heavy_runs` | 6 heavy specialist runs per lead run | up to `budget_max` (12) |
 | `budget.heavy_minutes` | 60 minutes of heavy specialists per lead run | up to `budget_max` (120) |
 | `retro.drop_after_runs` | 5 runs of a specialist for a tag with no findings before the retro proposes dropping it | any whole number from 1 |
-| `retro.add_after_escapes` | 2 runs with a tag where a category escaped before the retro proposes adding its specialist | any whole number from 1 |
+| `retro.add_after_escapes` | 2 runs with a tag where a category escaped before the retro proposes adding its specialist; also 2 runs with escapes at one test level before it proposes tests at that level | any whole number from 1 |
 | `tags.<tag>.run` | the table in DESIGN.md | add or drop specialists above the floor |
 
 The retro measures each specialist (precision, misses that escaped the swarm, and overlap with other specialists, by tag) and proposes changes to that file behind the same human gate as any rule.
