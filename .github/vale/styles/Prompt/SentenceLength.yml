@@ -1,0 +1,7 @@
+# A long sentence buries its instruction; split it. Only words count: code spans are not words.
+extends: occurrence
+message: "This sentence has over 60 words; split it."
+level: warning
+scope: sentence
+max: 60
+token: '\b[A-Za-z][A-Za-z''-]*\b'

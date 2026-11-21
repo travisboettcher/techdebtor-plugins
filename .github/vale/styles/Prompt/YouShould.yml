@@ -1,0 +1,12 @@
+# Instructions are imperative: "Run the tests", not "You should run the tests".
+extends: existence
+message: "Use the imperative instead of '%s'."
+level: warning
+ignorecase: true
+nonword: true
+tokens:
+  - '\byou should\b'
+  - '\byou could\b(?! not\b)'
+  - '\byou(?:''ll| will) want to\b'
+  - '\byou need to\b'
+  - '\bit(?:''s| is) recommended\b'

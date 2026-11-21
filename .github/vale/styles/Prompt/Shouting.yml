@@ -1,0 +1,73 @@
+# ALL-CAPS words read as shouting and skew how much weight the model gives an instruction.
+# Tokens joined by underscores (PLAN_READY) never match; protocol words and acronyms are exceptions.
+extends: existence
+message: "'%s' is shouting: use plain case, or add the token to the exceptions in Prompt/Shouting.yml if it is a protocol word or acronym."
+level: warning
+ignorecase: false
+nonword: true
+tokens:
+  - '\b[A-Z]{2,}\b'
+exceptions:
+  - API
+  - ARGUMENTS
+  - BLOCKED
+  - CHANGELOG
+  - CI
+  - CLAUDE
+  - CLI
+  - CONTRIBUTING
+  - CPU
+  - CSS
+  - CSV
+  - DB
+  - DESIGN
+  - DONE
+  - EARS
+  - EXISTING
+  - FAIL
+  - FAILED
+  - GB
+  - HOME
+  - HTML
+  - HTTP
+  - HTTPS
+  - ID
+  - IDE
+  - ISO
+  - JMH
+  - JSON
+  - JSONL
+  - KB
+  - LLM
+  - MB
+  - MCP
+  - MIT
+  - OK
+  - OS
+  - PASS
+  - PASSED
+  - PATH
+  - PII
+  - PIT
+  - POSIX
+  - PR
+  - PRE
+  - QUESTION
+  - README
+  - RUBRIC
+  - SAST
+  - SHA
+  - SHA256
+  - SKILL
+  - SQL
+  - SSH
+  - STOP
+  - TLS
+  - TOML
+  - UI
+  - UNVERIFIED
+  - URL
+  - UTC
+  - UUID
+  - XML
+  - YAML

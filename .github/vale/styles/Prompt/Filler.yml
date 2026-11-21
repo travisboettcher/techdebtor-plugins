@@ -1,0 +1,12 @@
+# Filler words add tokens and no meaning.
+extends: existence
+message: "Drop the filler '%s'."
+level: warning
+ignorecase: true
+tokens:
+  - just
+  - really
+  - actually
+  - quite
+  - very
+  - pretty much
