@@ -31,6 +31,8 @@ Break the task into steps. For each step give:
 - **Verifier**: the exact test, command or check that proves each criterion. Prefer the project's own verifiers. If a criterion has no verifier, the first implement step writes one (a failing test where the project has tests).
 - **Depends on**: earlier steps, if any.
 
+When a step handles untrusted input or is security-sensitive (redaction or sanitising, parsing, auth, input validation, path handling, permission rules), its acceptance criteria include an **adversarial input list**: inputs glued to neighbours (`_`, `-`, no space), quoted (with spaces, escapes), prefixed and suffixed variants, split across a boundary or cut short, oversized, malformed or empty; and a **must-not-match list** bounding over-matching. Give both lists to the implementer, tester and reviewer. For permission changes, state the narrowest acceptable entries as criteria.
+
 Show the plan. If the task is large or risky (touches many files, changes data formats or public interfaces, deletes or migrates anything, is hard to reverse, or the human sounded unsure), ask the human to approve the plan before implementing. Otherwise proceed.
 
 ## 3. Implement
@@ -55,6 +57,8 @@ Brief the `agent-loop:reviewer` agent with only:
 - the diff (`git diff` against the starting point, plus any new untracked files; tell it how to get them),
 - the acceptance criteria,
 - the rules brief.
+
+The reviewer applies a standing least-privilege check to any permission change (`over-broad-pre-approval`).
 
 Do **not** pass the implementer's reasoning, its report, the tester's report, or your own opinion of the change. The reviewer's value is an independent read.
 
