@@ -37,24 +37,25 @@ python -m pytest -q
 
 ## Prose style
 
-[Vale](https://vale.sh) lints every tracked Markdown file in CI (`.github/workflows/prose.yml`). `.vale.ini` at the root picks one of two styles by path:
+[Vale](https://vale.sh) lints every tracked Markdown file in CI (`.github/workflows/prose.yml`). `.vale.ini` at the root picks the rules by path, from upstream packages used as released:
 
-| Style | Files | What it checks |
+| Files | Packages | What they check |
 |---|---|---|
-| Prompt | `CLAUDE.md`, `plugins/*/skills/**`, `plugins/*/agents/**`, `plugins/*/commands/**`, `plugins/*/docs/specialists/*.md`, `plugins/*/docs/examples/**`, and the `description` and `argument-hint` of every skill, agent and command | What weakens an instruction to a model: hedges ("try to", "if possible", "consider"), politeness ("please"), filler ("simply", "just", "in order to"), "you should" instead of the imperative, "etc.", ALL-CAPS words outside an allowlist of protocol words and acronyms, and sentences over 60 words. Plus repeated words. |
-| Docs | every other Markdown file: READMEs, `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/*.md` (including `DESIGN.md` and `categories.md`: skills read them too, but they are written for people first) | Vale's spelling and repeated-word checks, and a subset of [write-good](https://github.com/vale-cli/write-good) and [proselint](https://github.com/vale-cli/proselint) (hedging, clichés, redundancy, "very", sentences starting with "So"). |
+| Model-facing: `CLAUDE.md`, `plugins/*/skills/**`, `plugins/*/agents/**`, `plugins/*/commands/**`, `plugins/*/docs/specialists/*.md`, `plugins/*/docs/examples/**`, and the `description` and `argument-hint` of every skill, agent and command | [Prompts](https://github.com/jdkato/prompts), the core of [Voices](https://github.com/jdkato/voices) plus one rule of its Direct voice (`Direct.Hedging`), and `Repo.SentenceLength` | Advice instead of instructions (`you should`, `please`, `try to`, `make sure to` opening a sentence), hedges, verbs that name no action (`handle`, `ensure`), too much shouting, contradictions, dates that will go stale, backslash paths, long sections and files, skill front matter (name, description length, third person, a "Use when" trigger), inflated words, throat-clearing, weasel attribution, recap endings, sentences over 60 words, repeated words. |
+| Human-facing: every other Markdown file: READMEs, `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/*.md` (including `DESIGN.md` and `categories.md`: skills read them too, but they are written for people first) | [proselint](https://github.com/vale-cli/proselint) and the core of Voices | Spelling, repeated words, clichés, redundancy, hedging, jargon, inflated words and the rest of proselint. |
 
-Code spans, fenced code blocks and YAML front matter are never linted; a word you are writing about rather than using goes in a code span (write `` `please` ``, not "please"), or an error-level rule fires on it. The model-facing front matter values are linted separately: `.github/scripts/frontmatter_prose.py` copies each skill's, agent's and command's `description` and `argument-hint` into a scratch directory, Vale lints them with the Prompt style, and the alerts point back at the source line. Most rules are warnings: CI annotates them on the pull request but does not fail. Errors fail CI; they are kept to rules that are always right (repeated words; "please", "kindly", "simply", "basically" and "in order to" in prompts).
+Code spans, fenced code blocks and YAML front matter are never linted (Prompts' front matter rules read the raw file); a word you are writing about rather than using goes in a code span (write `` `please` ``, not "please"), or a rule fires on it. The model-facing front matter values are linted as prose too: `.github/scripts/frontmatter_prose.py` copies each skill's, agent's and command's `description` and `argument-hint` into a scratch directory, Vale lints them with the model-facing rules, and the alerts point back at the source line. Errors fail CI; warnings are annotated on the pull request and do not fail it, but keep the count at zero: fix a warning in text you touch, or turn the rule off as below.
 
-The styles live in `.github/vale/styles/`: `Prompt/` is this repository's own; `write-good/` and `proselint/` are copied unmodified from their releases (v0.5.0 and v0.4.0) with their licenses, and `.vale.ini` sets their levels. Nothing is downloaded at lint time; do not run `vale sync`.
+**The packages.** `.github/vale/packages.json` pins each one to a versioned release zip and its sha256: Prompts v0.1.1, Voices v0.2.0, Std v0.2.0 (not enabled; `Repo.SentenceLength` extends its rule) and proselint v0.4.0. `.github/scripts/vale_packages.py` downloads them, checks each against its pin, and unpacks it into `.github/vale/styles/`, which is gitignored except for this repository's own `Repo/` style and `config/vocabularies/Repo/`. Never run `vale sync`, and never use a `latest` URL. To upgrade a package, change its version, URL and sha256 together (the sha256 is the `digest` that `gh release view <tag> -R <repo> --json assets` shows; check it against the zip you download) and run Vale over the repository before and after.
 
-**Run it locally** with the same pinned Vale, 3.28.1, from [its releases](https://github.com/vale-cli/vale/releases/tag/v3.28.1). Check the archive against the release's `vale_3.28.1_checksums.txt`, unpack it outside the repository, then from the repository root (paths must be relative: the styles are chosen by path):
+**Run it locally** with the same pinned Vale, 3.28.1, from [its releases](https://github.com/vale-cli/vale/releases/tag/v3.28.1). Check the archive against the release's `vale_3.28.1_checksums.txt` and unpack it outside the repository. Then, from the repository root (paths must be relative: the rules are chosen by path):
 
 ```
+python3 .github/scripts/vale_packages.py
 git ls-files -z '*.md' | xargs -0 vale
 ```
 
-and for the front matter values:
+`vale_packages.py` does nothing when the pinned versions are already installed. For the front matter values:
 
 ```
 out=$(mktemp -d)
@@ -64,7 +65,9 @@ python3 .github/scripts/frontmatter_prose.py extract --out "$out"
 
 The alerts name the scratch copies (`SKILL.description.md`, line 1 for the first line of the value); `.github/workflows/prose.yml` maps them back to the source.
 
-**Add vocabulary.** When Vale's spelling check flags a correct term (a tool name, a coined word such as `worktree`), add it to `.github/vale/styles/config/vocabularies/Repo/accept.txt`, one regular expression per line, kept in alphabetical order; `[Ww]orktrees?` accepts the capitalised and plural forms. For a new protocol word or acronym that the Prompt style calls shouting, add it to the `exceptions` in `.github/vale/styles/Prompt/Shouting.yml`. Tokens joined by underscores, such as `PLAN_READY`, are never flagged.
+**Turn a rule off** for the files it misfires on with `Package.Rule = NO` (or change its level with `= warning`) in the matching section of `.vale.ini`, with a one-line comment saying why. A section can name a narrower glob: agents and the skills that set `disable-model-invocation: true` turn off `Prompts.Trigger` that way, and a new user-only skill adds its path there. For one passage, wrap it in `<!-- vale Package.Rule = NO -->` and `<!-- vale Package.Rule = YES -->`. Never edit a package's files: they are replaced on every install.
+
+**Add vocabulary.** When Vale's spelling check flags a correct term (a tool name, a coined word such as `worktree`), add it to `.github/vale/styles/config/vocabularies/Repo/accept.txt`, one regular expression per line, kept in alphabetical order; `[Ww]orktrees?` accepts the capitalised and plural forms.
 
 ## Token budget
 
