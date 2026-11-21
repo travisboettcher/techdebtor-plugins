@@ -2,9 +2,9 @@ name: Evals
 
 # Behavioural evals (`claude plugin eval`) for every plugin in the marketplace that has an
 # evals/ directory. They call the Anthropic API, so they cost money and never run on every
-# push: nightly on main (the `full` set), by hand, and on a pull request only once a
-# maintainer adds the `run-evals` label (the `smoke` set, again on each push while the
-# label stays).
+# push: nightly on main (every case), by hand (every case unless a tag is chosen), and on a
+# pull request only once a maintainer adds the `run-evals` label (the `smoke` cases, again
+# on each push while the label stays).
 #
 # Needs the repository secret ANTHROPIC_API_KEY (Settings > Secrets and variables >
 # Actions). Without it (always the case for pull requests from forks) the job skips with
@@ -18,13 +18,16 @@ on:
         description: "Plugin to evaluate (its directory name under plugins/), or all"
         default: all
       tag:
-        description: "Which cases to run"
+        description: "Which cases to run: all, or only those with this tag"
         type: choice
-        options: [smoke, full]
-        default: smoke
+        options: [all, smoke, full]
+        default: all
       runs:
         description: "Runs per case (each runs twice: with and without the plugin)"
         default: "1"
+      model:
+        description: "Model for the runs (the judge stays the CLI's default)"
+        default: sonnet
   schedule:
     - cron: "41 7 * * *"
   pull_request:
@@ -34,17 +37,23 @@ on:
       - "plugins/*/agents/**"
       - "plugins/*/evals/**"
       - "plugins/*/docs/**"
+      - "plugins/*/scripts/**"
+      - "plugins/*/hooks/**"
+      - "plugins/*/.claude-plugin/**"
+      - ".github/workflows/evals.yml"
 
 permissions:
   contents: read
 
+# One eval run at a time per ref, never cancelled: a pull request's runs queue behind each
+# other but cannot displace the nightly run on main.
 concurrency:
-  group: plugin-evals
+  group: plugin-evals-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   CLAUDE_CODE: "@anthropic-ai/claude-code@2.1.322"
-  MODEL: sonnet
+  DEFAULT_MODEL: sonnet
   # Hard ceiling per plugin per workflow run; the eval stops and reports partial results.
   MAX_COST_USD: "5"
   # On a labelled pull request the job fails when any case's score (the mean over its runs,
@@ -86,7 +95,9 @@ jobs:
       - name: Install the eval sandbox's dependencies
         if: steps.key.outputs.present == 'true'
         # Shell tools in an eval run are confined with bubblewrap; Ubuntu's AppArmor policy
-        # blocks the unprivileged user namespaces it needs unless this is turned off.
+        # blocks the unprivileged user namespaces it needs unless this is turned off. The
+        # packages are not version-pinned: the runner image's Ubuntu release (and so the
+        # available versions) moves under ubuntu-latest, and a pinned version would vanish.
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq bubblewrap socat
@@ -100,13 +111,16 @@ jobs:
           IN_PLUGIN: ${{ inputs.plugin }}
           IN_TAG: ${{ inputs.tag }}
           IN_RUNS: ${{ inputs.runs }}
+          IN_MODEL: ${{ inputs.model }}
         run: |
           case "$EVENT" in
-            pull_request) tag=smoke; runs=""; threshold="$THRESHOLD" ;;
-            schedule) tag=full; runs=1; threshold=0 ;;
-            *) tag="$IN_TAG"; runs="$IN_RUNS"; threshold=0 ;;
+            pull_request) tag=smoke; runs=""; threshold="$THRESHOLD"; model="$DEFAULT_MODEL" ;;
+            schedule) tag=all; runs=1; threshold=0; model="$DEFAULT_MODEL" ;;
+            *) tag="${IN_TAG:-all}"; runs="$IN_RUNS"; threshold=0; model="${IN_MODEL:-$DEFAULT_MODEL}" ;;
           esac
           case "$runs" in ""|[1-9]|[1-4][0-9]|50) ;; *) echo "::error::runs must be 1-50"; exit 1 ;; esac
+          case "$tag" in all|smoke|full) ;; *) echo "::error::tag must be all, smoke or full"; exit 1 ;; esac
+          if ! [[ "$model" =~ ^[a-z0-9][a-z0-9.-]*$ ]]; then echo "::error::model must be a model name or alias"; exit 1; fi
           plugins=$(python3 -I - "${IN_PLUGIN:-all}" <<'PY'
           import json, os, re, sys
           wanted = sys.argv[1]
@@ -120,9 +134,10 @@ jobs:
               print(name)
           PY
           )
-          echo "Plugins: ${plugins:-none}; tag: $tag; runs: ${runs:-per case}; threshold: $threshold"
+          echo "Plugins: ${plugins:-none}; tag: $tag; runs: ${runs:-per case}; model: $model; threshold: $threshold"
           {
             echo "tag=$tag"
+            echo "model=$model"
             echo "runs=$runs"
             echo "threshold=$threshold"
             echo "plugins=$(echo $plugins)"
@@ -135,6 +150,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PLUGINS: ${{ steps.plan.outputs.plugins }}
           TAG: ${{ steps.plan.outputs.tag }}
+          MODEL: ${{ steps.plan.outputs.model }}
           RUNS: ${{ steps.plan.outputs.runs }}
           RUN_THRESHOLD: ${{ steps.plan.outputs.threshold }}
           OUT: ${{ runner.temp }}/eval-results
@@ -143,6 +159,8 @@ jobs:
         run: |
           mkdir -p "$OUT" "$TMPDIR"
           failed=""
+          filter=()
+          [ "$TAG" = all ] || filter=(--tag "$TAG")
           for name in $PLUGINS; do
             mkdir -p "$OUT/$name"
             status=0
@@ -151,7 +169,7 @@ jobs:
             # the tools it may use; --allow-tools is the operator's grant on top.
             npx -y "$CLAUDE_CODE" plugin eval "plugins/$name" \
               --trust-plugin --scaffold --no-publish \
-              --tag "$TAG" ${RUNS:+--runs "$RUNS"} --model "$MODEL" \
+              "${filter[@]}" ${RUNS:+--runs "$RUNS"} --model "$MODEL" \
               --allow-tools Bash Write Edit Agent \
               --max-cost-usd "$MAX_COST_USD" --threshold "$RUN_THRESHOLD" \
               --output-dir "$OUT/$name" --report "$OUT/$name/report.html" \
@@ -204,7 +222,9 @@ jobs:
           name: eval-results
           path: ${{ runner.temp }}/eval-results
           if-no-files-found: ignore
-          retention-days: 30
+          # The reports hold the cases' prompts, the agents' final messages and grader evidence;
+          # on this public repository anyone can download them.
+          retention-days: 7
 
       - name: Fail on a labelled pull request below the threshold
         if: steps.run.outputs.failed != ''
