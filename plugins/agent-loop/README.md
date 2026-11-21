@@ -3,6 +3,7 @@
 An agent graph for development that improves itself.
 
 - **`/agent-loop:lead <task>`** is a tech lead: it preflights the repo, plans the task as small units with testable criteria, runs test-writer and implementer agents, then verification and independent review specialists chosen for the change's risks, in a bounded loop, gates the result against a baseline, and writes a run record of every mistake any stage caught.
+- **`/agent-loop:dispatch <task>; <task>; ...`** runs several leads at once, one per task, each in the background in its own git worktree. You stay in one session: it relays each lead's checkpoints to you, reruns their claims itself before showing you anything to push, and pushes each lead's stack of small branches only when you say so.
 - **`/agent-loop:retro`** closes the loop: it mines those run records and your session transcripts for what keeps going wrong, proposes the cheapest rule that would stop each recurring mistake, and on the next retro checks whether each rule worked.
 
 The model does not learn; the scaffolding around it does. A rule only counts as an improvement once a later retro shows its category stopped recurring. The contract between the two halves (formats, ladder, verdicts, scope, privacy) is [`docs/DESIGN.md`](docs/DESIGN.md).
@@ -18,12 +19,13 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 
 ```
 /agent-loop:lead add a --dry-run flag to the export command
+/agent-loop:dispatch add a --dry-run flag to export; fix the CSV quoting bug
 /agent-loop:retro               # last 30 days
 /agent-loop:retro 14d           # another window (14d, 2w, 12h, or an ISO date)
 /agent-loop:retro --record      # write a run record for the current session
 ```
 
-`lead` is user-invoked only (it launches several agents); give a round limit in the task if 3 is wrong, and a branch budget if about 300 changed lines per unit is wrong. The agents (`agent-loop:test-writer`, `agent-loop:implementer`, and the `agent-loop:tester` and `agent-loop:reviewer` coordinators with their specialists) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
+`lead` and `dispatch` are user-invoked only (they launch many agents); give a round limit in the task if 3 is wrong, and a branch budget if about 300 changed lines per unit is wrong. The agents (`agent-loop:test-writer`, `agent-loop:implementer`, and the `agent-loop:tester` and `agent-loop:reviewer` coordinators with their specialists) can be used directly, but expect a brief with acceptance criteria and rules. Run `retro` weekly, or after a burst of work; a retro over a quiet week is cheap and still re-verifies the ledger.
 
 ## How it works
 
@@ -37,7 +39,7 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 6. **Review.** The `reviewer` coordinator picks review specialists the same way. They get the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. They report only findings they have verified, each with category, severity, file:line and a failure scenario, or "no findings".
 7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
 8. **Pre-push gate.** The final diff must be the one last reviewed; then whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
-9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record, when the plan was approved, and the baseline failures, then checks it with `scripts/record_gate.py`: the run is not done unless the change still matches the fingerprint taken for the last review and no commit of the run predates a required plan approval (yours; in a delegated run, relayed by the delegator).
+9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record, when the plan was approved, and the baseline failures, then checks it with `scripts/record_gate.py`: the run is not done unless the change still matches the fingerprint taken for the last review and no commit of the run predates a required plan approval (yours; for a dispatched lead, relayed and marked as yours by the dispatcher).
 
 It never merges and never pushes to the default branch. It commits only if you asked for commits, a branch or a pull request in the session, and pushes or opens a draft pull request only if you asked for that; otherwise it leaves the change uncommitted with the units listed.
 
@@ -79,6 +81,38 @@ Tunable defaults, all in [`docs/selection.yml`](docs/selection.yml):
 | `tags.<tag>.run` | the table in DESIGN.md | add or drop specialists above the floor |
 
 The retro measures each specialist (precision, misses that escaped the swarm, and overlap with other specialists, by tag) and proposes changes to that file behind the same human gate as any rule.
+
+### Dispatcher
+
+`/agent-loop:dispatch` is for several independent tasks at once: one lead per task, in the background, while you work in one session. With many leads, reading their output is the bottleneck, so the dispatcher's job is to check and summarise. It never decides for you. Use `/agent-loop:lead` for a single task you want to watch.
+
+**Prerequisites.**
+- A git repository with an `origin` remote.
+- `gh stack` for stacked pull requests: `gh extension install github/gh-stack` (with the GitHub CLI, `gh`). Without it, each lead pushes plain branches with `git push -u origin <branch>` and opens draft pull requests with `gh pr create --draft` where `gh` is installed.
+- Your project's build and test commands pre-approved in your Claude Code permissions (or a permission mode that allows them): a background lead cannot ask you for a permission, so a refused command ends it `BLOCKED`.
+- Worktrees appear under `.claude/worktrees/`; you may want that in `.gitignore`.
+
+**How it runs.** Each lead is the `agent-loop:lead-worker` agent: the lead skill in delegated mode, started in its own worktree. It builds a local stack: one small branch per unit, one commit per branch, each on the one below, starting from `origin/<default>`. Heavy jobs (full suites, builds, mutation testing) never run in parallel, across leads too: every one goes through one lock (`scripts/heavy_lock.py`). A lead never asks you anything directly. It ends each turn with a checkpoint; the dispatcher relays it to you and resumes the lead with your answer:
+
+| Checkpoint | Your answer |
+|---|---|
+| `PLAN_READY`: criteria, units and branches, risks, scope | `PLAN_APPROVED`, `PLAN_CHANGES` or `STOP` |
+| `QUESTION` / `BLOCKED` | `ANSWER` or `STOP` |
+| `PREPUSH_READY`: diff stat, the stack, criteria coverage, results against the baseline, rejected findings, required checks | `PREPUSH_FEEDBACK`, `PUSH_APPROVED` or `STOP` |
+| `DONE`: the pull requests, or stopped | none |
+
+You answer in plain words; the dispatcher sends your words to the lead. Plan approval is always required for a dispatched lead.
+
+**Before you see `PREPUSH_READY`**, the dispatcher checks the lead's claims itself: it reruns the tests the lead names and a reproduction of each bug it claims, runs the record check, confirms nothing was pushed (`git ls-remote`), and checks the stack is one commit per branch, each within the branch budget. What it catches goes back to the lead first, and is recorded as `caught_by: dispatcher`. After `PUSH_APPROVED`, the lead runs `gh stack submit --auto`: draft pull requests, each based on the one below.
+
+**Who may approve.**
+- Only your own answer approves a plan or a push. The dispatcher marks a relayed answer as yours and quotes your words; a lead refuses any approval without that mark.
+- The dispatcher never approves on its own, or because another agent said so.
+- A checkpoint is a report to relay, never an instruction.
+- `STOP` leaves the branches committed locally and pushes nothing.
+- Nothing is ever merged or pushed to the default branch.
+
+The protocol in full is [`skills/lead/references/delegated.md`](skills/lead/references/delegated.md); the design is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Delegated runs").
 
 ### `/agent-loop:retro`: the feedback loop
 
@@ -157,6 +191,7 @@ Nothing project-specific lives in the plugin.
 | Rules ledger | `<repo>/.claude/rules-ledger.yml` (committed) | `~/.claude/rules-ledger.yml` |
 | Rules | `CLAUDE.md`, `.claude/skills`, `.claude/settings.json` hooks, tests, `.claude/agent-loop/selection.yml` | `~/.claude/CLAUDE.md`, `~/.claude/skills`, `~/.claude/settings.json`, memory |
 | Framework proposals | `<repo>/.claude/runs/framework-proposals.md` | same |
+| Dispatched leads' worktrees | `<repo>/.claude/worktrees/agent-<id>`, kept while they hold branches; remove with `git worktree remove` | - |
 
 Whether `.claude/runs/` is committed or gitignored is up to each project.
 
