@@ -15,7 +15,7 @@ Claude Code plugins from [techdebtor.io](https://techdebtor.io).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md): adding or changing a plugin, the prose style that CI checks with Vale, token budgets, and how pull requests work. Only generic, reusable plugins belong here.
 
-A plugin may ship behavioural evals for `claude plugin eval` in `plugins/<name>/evals/` (see each plugin's README). `.github/workflows/evals.yml` runs them for every plugin that has them: the `full` set nightly, either set by hand, and the `smoke` set on a pull request labelled `run-evals`. They call the Anthropic API, so the workflow needs the repository secret `ANTHROPIC_API_KEY`; without it (and on pull requests from forks) it skips with a notice.
+A plugin may ship behavioural evals for `claude plugin eval` in `plugins/<name>/evals/` (see each plugin's README). `.github/workflows/evals.yml` runs them for every plugin that has them: every case nightly and by hand (or one tag's cases), and the `smoke` cases on a pull request labelled `run-evals`. Its reports, uploaded for 7 days, hold the cases' prompts, the agents' final messages and the graders' evidence, and anyone can download them. They call the Anthropic API, so the workflow needs the repository secret `ANTHROPIC_API_KEY`; without it (and on pull requests from forks) it skips with a notice.
 
 ## Releasing
 
