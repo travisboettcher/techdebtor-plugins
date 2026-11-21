@@ -104,3 +104,8 @@ def test_shipped_files_do_not_cite_issue_numbers(path):
     # Installed users do not have this repository's issues; describe planned work in words.
     text = (PLUGIN / path).read_text()
     assert not re.search(r"(?<![\w&/])#\d+\b", text), path
+
+
+def test_test_level_categories_are_catalogued():
+    assert {"wrong-test-level", "missing-contract-test", "missing-test-level", "inverted-pyramid",
+            "unverified-stub"} <= set(catalog())

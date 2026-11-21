@@ -50,14 +50,14 @@ lead ─┬─► tester (coordinator) ── verification: run things, collect 
       │     baseline: test-runner
       │     by tag:   measurement-auditor · check-runner (verify skills) · fuzzer
       │               test-strategist · contract-tester
-      │     opt-in:   integration-tester · system-tester · api-fuzzer · mutation-tester
-      │               perf-tester · security-scanner
+      │     opt-in:   integration-tester · service-tester · system-tester · api-fuzzer
+      │               mutation-tester · perf-tester · security-scanner
       └─► reviewer (coordinator) ── review: read the code, judge it
             baseline: correctness-reviewer
             by tag:   security-reviewer · permissions-reviewer · api-reviewer · docs-reviewer
 ```
 
-Each specialist is its own agent with one narrow job, the fewest tools that work and a shared report format. The lead tags each unit with risk tags; a selection table ([`docs/selection.yml`](docs/selection.yml), shown in [`docs/DESIGN.md`](docs/DESIGN.md)) maps tags to specialists, on top of a baseline that always runs. Each coordinator says which specialists it chose and why, runs light ones in parallel and heavy ones (full suites, fuzzing, mutation, integration, system and performance runs) one at a time within a per-run budget, and merges duplicate findings before the lead sees them. A specialist whose tool is missing reports BLOCKED and names it; it never installs anything (a readiness audit of the repository finds those gaps).
+Each specialist is its own agent with one narrow job, the fewest tools that work and a shared report format. The lead tags each unit with risk tags; a selection table ([`docs/selection.yml`](docs/selection.yml), shown in [`docs/DESIGN.md`](docs/DESIGN.md)) maps tags to specialists, on top of a baseline that always runs. Each coordinator says which specialists it chose and why, runs light ones in parallel and heavy ones (full suites, fuzzing, mutation, integration, service, system and performance runs) one at a time within a per-run budget, and merges duplicate findings before the lead sees them. A specialist whose tool is missing reports BLOCKED and names it; it never installs anything (a readiness audit of the repository finds those gaps).
 
 When no unit has a risk tag, the lead skips the coordinators and runs the baseline pair directly. The specialists' shared rules and report formats are in [`docs/specialists/`](docs/specialists).
 
@@ -89,14 +89,15 @@ The retro measures each specialist (precision, misses that escaped the swarm, an
 The pool reasons about test levels, not just "the test suite": prove each behaviour at the lowest level that can prove it, and add higher levels only for what lower ones cannot see. A test's level comes from what it really depends on, not its markers:
 
 ```
-        system        the whole app through real user paths: fewest, slowest
-      integration     real collaborators (database, queue, service)
+        system        the deployed whole through real user paths: fewest, slowest
+        service       the packaged image, out of process, through its real port; stubs from contracts
+      integration     one adapter against a real collaborator (database, queue, service)
        contract       two components agree on the interface between them, at every boundary
-       component      one module through its public interface, boundaries faked
+       component      one module in process, through its public interface, boundaries faked
          unit         pure logic: many and fast, the only level mutation testing reaches well
 ```
 
-Each criterion in the plan gets a target level, and the test-writer writes at it. The test runner reports each level apart; `public-api` adds the contract tester (as a floor), real collaborators (`io-boundary`, `data-migration`, `concurrency`) the integration tester, user-facing changes the system tester where the project enables it. The test strategist, read-only, checks each criterion's level and the levels the tags call for, and flags what blocks: logic tested only high up (`wrong-test-level`), an interface the change touches without a contract test (`missing-contract-test`), a criterion with no test at its planned level (`missing-test-level`). The pyramid's shape (count and run time per level, at the base and now) belongs to the whole suite, so an ice-cream cone (`inverted-pyramid`) and levels the tags merely suggest are report-only. A finding that escaped records the level that should have caught it, and the retro proposes tests at a level where escapes repeat. The definitions are in [`docs/DESIGN.md`](docs/DESIGN.md) ("Test levels").
+Each criterion in the plan gets a target level, and the test-writer writes at it. The test runner reports each level apart; `public-api` adds the contract tester (as a floor), real collaborators (`io-boundary`, `data-migration`, `concurrency`) the integration tester, packaging and startup (`deployable`) the service tester, user-facing changes the system tester where the project enables it. The test strategist, read-only, checks each criterion's level and the levels the tags call for, and flags what blocks: logic tested only high up (`wrong-test-level`), an interface the change touches without a contract test (`missing-contract-test`), a criterion with no test at its planned level (`missing-test-level`), a hand-written stub with no contract behind it (`unverified-stub`). The pyramid's shape (count and run time per level, at the base and now) belongs to the whole suite, so an ice-cream cone (`inverted-pyramid`) and levels the tags merely suggest are report-only. A finding that escaped records the level that should have caught it, and the retro proposes tests at a level where escapes repeat. The definitions are in [`docs/DESIGN.md`](docs/DESIGN.md) ("Test levels").
 
 ### Dispatcher
 

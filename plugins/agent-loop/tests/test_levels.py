@@ -31,10 +31,15 @@ def _rec(findings=(), test_plan=None, date="2026-11-20"):
 
 
 def test_the_levels_are_the_designs():
-    assert LEVELS == ("unit", "component", "contract", "integration", "system")
+    assert LEVELS == ("unit", "component", "contract", "integration", "service", "system")
     design = (PLUGIN / "docs/DESIGN.md").read_text().split("## Test levels", 1)[1].split("\n## ", 1)[0]
     for level in LEVELS:
         assert f"| `{level}` |" in design, level
+
+
+def test_a_service_level_finding_is_counted():
+    rep = level_report([_rec([_f("unverified-stub", "service")], test_plan=[{"criterion": "a", "level": "service"}])])
+    assert rep["planned"] == {"service": 1} and rep["by_level"]["service"]["escaped"] == 1
 
 
 def test_records_without_levels_give_an_empty_report():

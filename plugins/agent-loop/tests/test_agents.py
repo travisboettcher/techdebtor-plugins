@@ -186,11 +186,13 @@ LEVELS_REF = PLUGIN / "docs/specialists/test-levels.md"
 def test_level_aware_specialists_read_the_test_levels_reference():
     # One shared reference holds the classification and the per-level report; specialists point to it.
     text = LEVELS_REF.read_text()
-    for word in ("`unit`", "`component`", "`contract`", "`integration`", "`system`", "`unclassified`",
+    for word in ("`unit`", "`component`", "`contract`", "`integration`", "`service`", "`system`", "`unclassified`",
+                 "Testcontainers", "GenericContainer", "`unverified-stub`",
                  "autouse=True", "real dependencies", "convention", "docs/DESIGN.md", "`tmp_path`", "subprocess",
                  "import", "test runner's per-level report"):
         assert word in text, word
-    for name in ("test-runner", "test-strategist", "contract-tester", "integration-tester", "measurement-auditor"):
+    for name in ("test-runner", "test-strategist", "contract-tester", "integration-tester", "service-tester",
+                 "measurement-auditor"):
         assert "test-levels.md" in agent(name)[1], name
 
 
@@ -202,14 +204,20 @@ def test_the_level_specialists_jobs():
                  "`inverted-pyramid`", "test runner's report", "never run tests"):
         assert word in strategist, word
     calls = {tag for tag, row in TABLE["tags"].items()
-             if {"contract-tester", "integration-tester", "system-tester"} & set(row["run"])} - {"user-facing"}
+             if {"contract-tester", "integration-tester", "service-tester", "system-tester"} & set(row["run"])}
+    calls -= {"user-facing"}
     assert calls and all(f"`{tag}`" in strategist for tag in calls)  # the tags that call for a level
     _, contract = agent("contract-tester")
     assert "`missing-contract-test`" in contract and "BLOCKED" in contract and "heavy_lock.py" in contract
     assert "after the test runner" in contract
+    _, writer = agent("test-writer")
+    assert "`service`" in writer and "packaged" in writer
     _, api = agent("api-reviewer")
     assert "no contract test covers it (`missing-contract-test`)" in api and "`interface-mismatch`" in api
     _, integration = agent("integration-tester")
     assert "roll" in integration and "`shared-state-false-failures`" in integration and "BLOCKED" in integration
+    _, service = agent("service-tester")
+    for word in ("heavy_lock.py", "BLOCKED", "`unverified-stub`", "image", "remove", "network interface"):
+        assert word in service, word
     _, system = agent("system-tester")
     assert "contract tests" not in system  # the contract tester owns them now

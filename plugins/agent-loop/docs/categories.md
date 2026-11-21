@@ -73,13 +73,14 @@ Each entry: the category, what goes wrong, the `stage` where it is usually made 
 
 ## Test levels
 
-The levels (`unit`, `component`, `contract`, `integration`, `system`) and the rule behind these categories, proving each behaviour at the lowest level that can prove it, are in `DESIGN.md` ("Test levels").
+The levels (`unit`, `component`, `contract`, `integration`, `service`, `system`) and the rule behind these categories, proving each behaviour at the lowest level that can prove it, are in `DESIGN.md` ("Test levels").
 
 | Category | What goes wrong | Usually made | Cheapest known rule |
 |---|---|---|---|
 | `wrong-test-level` | A behaviour is proved at a higher level than the lowest that can prove it: logic or an edge case tested only through an integration or system test, including logic among changed lines that only integration tests cover. Slow, brittle, and out of reach of mutation testing. | plan | Each criterion in the test plan gets a target level, the lowest that can prove it, and the test-writer writes at it; the test strategist checks each criterion's level. |
 | `missing-contract-test` | An interface between components (or a public one others consume) changes and no contract test covers it, so each side passes its own tests and they fail together. | plan | A contract-level criterion for every boundary a unit touches; the contract tester for any unit tagged `public-api`. |
 | `missing-test-level` | A criterion's planned target level has no test, or (report-only) a level the change's risk tags call for has none: an integration test for code that talks to a real collaborator, a system test for a user path. Contract tests have their own category, `missing-contract-test`. | plan | Map each unit's tags to the levels they call for when writing the test plan; the test strategist flags a missing level. |
+| `unverified-stub` | A stub a service or component test runs against (a wire stub, a fake server, a mock of another service) is written by hand, not generated from or verified against a contract, so the test passes against behaviour the real collaborator does not have. | test-write | Generate stubs from contracts (consumer-driven contract stubs, a contract stub runner, mocks driven by the API spec), or verify them against the provider; the service tester checks stub provenance. |
 | `inverted-pyramid` | The suite is top-heavy, mostly system or end-to-end tests (an ice-cream cone), so it is slow and brittle and still misses what lower levels would catch. A property of the whole suite, so always report-only. | test-write | Add tests at the lowest level that can prove a behaviour, and move logic into pure code; the test strategist reports the shape (count and run time per level, at the base and now). |
 
 ## Interfaces

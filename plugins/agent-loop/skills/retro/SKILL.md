@@ -56,7 +56,7 @@ Windows (`window`): the miner reads every run record in every worktree of the pr
 - `by_specialist`, per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses`, `miss_rate`, `overlap`, and those counts `by_tag` for the tags that selected it. `misses` are findings in its own categories, in a run that chose it, that it did not report and that escaped the swarm: caught by the human, CI, a hook or the dispatcher, or in a later round. `overlap` is the same, caught by another specialist in the same round.
 - `by_tag`, per tag: `runs` and the categories that `escaped`.
 
-`test_levels` attributes findings to test levels (`unit`, `component`, `contract`, `integration`, `system`; DESIGN.md "Test levels"), from every run record:
+`test_levels` attributes findings to test levels (`unit`, `component`, `contract`, `integration`, `service`, `system`; DESIGN.md "Test levels"), from every run record:
 - `planned`: the criteria planned at each target level.
 - `plans_by_reference`: the records whose `plan` is a path the miner does not open, so their levels are unknown (`specialists.plans_by_reference` counts them too: their plan tags are unknown).
 - `by_level`, per level: the findings whose `should_have_caught_at` names it, how many `escaped` the swarm, in how many runs (`runs_escaped`), and their `categories`.

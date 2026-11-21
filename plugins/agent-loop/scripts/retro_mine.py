@@ -1373,7 +1373,7 @@ def specialist_report(records, table: dict) -> dict:
     return {"records": counted, "plans_by_reference": by_reference, "by_specialist": dict(sorted(by_spec.items())), "by_tag": dict(sorted(by_tag.items()))}
 
 
-LEVELS = ("unit", "component", "contract", "integration", "system")  # DESIGN.md, "Test levels"
+LEVELS = ("unit", "component", "contract", "integration", "service", "system")  # DESIGN.md, "Test levels"
 
 
 def level_report(records) -> dict:

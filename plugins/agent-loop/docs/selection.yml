@@ -37,6 +37,11 @@ specialists:                  # pool: tester (verification) | reviewer (review);
     weight: heavy
     opt_in: true
     categories: [interface-mismatch, behaviour-regression, shared-state-false-failures]
+  service-tester:             # the packaged image through its real network interface; checks stub provenance
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [unverified-stub, behaviour-regression, interface-mismatch]
   fuzzer:
     pool: tester
     weight: heavy
@@ -113,6 +118,10 @@ tags:                         # when: what the lead tags; files: what the change
   io-boundary:
     when: "Talks to a real collaborator across a process boundary: a database, queue, cache, file storage, or a network service or client."
     run: [integration-tester, test-strategist]
+  deployable:
+    when: "Changes how the service is packaged or starts: its image build, startup, configuration or environment wiring, migrations run on boot, health or readiness endpoints, or HTTP or messaging wiring."
+    files: "Dockerfile or Containerfile, image build config, startup, configuration or environment files, migrations, health endpoints, HTTP or messaging wiring."
+    run: [service-tester, test-strategist]
   concurrency:
     when: "Threads, async, locks, queues, retries, or state shared by more than one worker."
     run: [integration-tester, system-tester, test-strategist]

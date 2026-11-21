@@ -20,7 +20,7 @@ plan:                         # the plan record from step 3 (or a path to it)
   test_plan:                  # each criterion, its test, its target level (step 3) and the unit that adds it
     - criterion: "..."
       test: "path::test_name"
-      level: unit             # unit | component | contract | integration | system
+      level: unit             # unit | component | contract | integration | service | system
       unit: "..."
   verify_skills:              # optional: the verify skills chosen per unit (references/verify-skills.md)
     - unit: "..."

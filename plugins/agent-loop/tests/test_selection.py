@@ -81,12 +81,13 @@ def test_guard_tags_have_a_floor_and_a_file_signal():
 
 def test_new_heavy_specialists_start_opt_in():
     specs = default()["specialists"]
-    for name in ("mutation-tester", "api-fuzzer", "integration-tester", "system-tester", "perf-tester",
-                 "security-scanner"):
+    for name in ("mutation-tester", "api-fuzzer", "integration-tester", "service-tester", "system-tester",
+                 "perf-tester", "security-scanner"):
         assert specs[name]["opt_in"] is True and specs[name]["weight"] == "heavy", name
 
 
-LEVEL_SPECIALISTS = {"contract": "contract-tester", "integration": "integration-tester", "system": "system-tester"}
+LEVEL_SPECIALISTS = {"contract": "contract-tester", "integration": "integration-tester", "service": "service-tester",
+                     "system": "system-tester"}
 
 
 def test_risk_tags_call_for_test_levels():
@@ -97,14 +98,16 @@ def test_risk_tags_call_for_test_levels():
     tags, specs = t["tags"], t["specialists"]
     calls = {lvl: {tag for tag, row in tags.items() if name in row["run"]} for lvl, name in LEVEL_SPECIALISTS.items()}
     assert calls == {"contract": {"public-api"}, "integration": {"io-boundary", "data-migration", "concurrency"},
-                     "system": {"ui", "user-facing", "data-migration", "concurrency"}}
+                     "service": {"deployable"}, "system": {"ui", "user-facing", "data-migration", "concurrency"}}
     strategist = {tag for tag, row in tags.items() if "test-strategist" in row["run"]}
     # user-facing text and defaults are proved at unit or component level: the strategist is not for it.
     assert strategist == set().union(*calls.values()) - {"user-facing"} | {"test-infra", "test-changes"}
     assert tags["test-changes"]["files"] and tags["public-api"]["files"]
     for name in ("test-strategist", "contract-tester"):
         assert specs[name]["weight"] == "light" and not specs[name].get("opt_in"), name
-    assert specs["integration-tester"]["weight"] == "heavy" and specs["integration-tester"]["opt_in"] is True
+    for name in ("integration-tester", "service-tester"):
+        assert specs[name]["weight"] == "heavy" and specs[name]["opt_in"] is True, name
+    assert "unverified-stub" in specs["service-tester"]["categories"] and tags["deployable"]["files"]
     assert "test-strategist" not in t["baseline"]
 
 
@@ -134,12 +137,12 @@ def test_shape_findings_are_report_only_and_suggested_levels_never_block():
 def test_design_level_table_matches_the_data_file():
     text = (PLUGIN / "docs/DESIGN.md").read_text()
     section = text.split("## Test levels", 1)[1].split("\n## ", 1)[0]
-    rows = re.findall(r"^\| `(contract|integration|system)` \| ([^|]+) \| `([a-z-]+)`", section, re.M)
+    rows = re.findall(r"^\| `(contract|integration|service|system)` \| ([^|]+) \| `([a-z-]+)`", section, re.M)
     shown = {lvl: (set(re.findall(r"`([a-z-]+)`", tags)), name) for lvl, tags, name in rows}
     tags = default()["tags"]
     assert shown == {lvl: ({t for t, row in tags.items() if name in row["run"]}, name)
                      for lvl, name in LEVEL_SPECIALISTS.items()}
-    for level in ("unit", "component", "contract", "integration", "system"):
+    for level in ("unit", "component", "contract", "integration", "service", "system"):
         assert f"| `{level}` |" in section or f"`{level}`, " in section, level
 
 
@@ -612,5 +615,5 @@ def test_the_documented_test_plan_and_level_attribution_parse():
     rec = parse_yaml_lite(example)
     (entry,) = rec["plan"]["test_plan"]
     assert set(entry) == {"criterion", "test", "level", "unit"} and entry["unit"] in rec["plan"]["units"]
-    assert entry["level"] in ("unit", "component", "contract", "integration", "system")
+    assert entry["level"] in ("unit", "component", "contract", "integration", "service", "system")
     assert [f.get("should_have_caught_at") for f in rec["findings"]] == [None, "contract"]
