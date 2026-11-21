@@ -680,3 +680,165 @@ def test_cd_out_of_the_repo_does_not_fall_back_to_the_root(repo):
     entries = only["checks"]["tests"]
     assert [e["via"] for e in entries] == [[], [{"file": "package.json", "line": 1, "target": "test"}]]
     assert entries[0]["unresolved"] is True
+
+
+# ---------------------------------------------------------------------------
+# Review round 1: hostile fixtures, each under a time limit
+# ---------------------------------------------------------------------------
+
+def _run_cli(root, timeout=30):
+    start = time.perf_counter()
+    out = subprocess.run([sys.executable, "-I", str(SCRIPT), str(root)], capture_output=True, text=True,
+                         timeout=timeout)
+    elapsed = time.perf_counter() - start
+    assert out.returncode == 0, out.stderr[-2000:]
+    return json.loads(out.stdout), elapsed
+
+
+def test_script_chain_fan_out_is_memoised(repo):
+    root = repo({
+        ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: bash a.sh\n",
+        "a.sh": "bash b.sh\n" * 500,
+        "b.sh": "bash c.sh\n" * 500,
+        "c.sh": "pytest -q\n" * 30,
+    })
+    data, elapsed = _run_cli(root)
+    assert elapsed < 10
+    (job,) = [j for wf in data["ci"]["workflows"] for j in wf["jobs"]]
+    assert [v["file"] for v in job["checks"]["tests"][0]["via"]] == ["a.sh", "b.sh", "c.sh"]
+
+
+def test_make_chain_fan_out_is_memoised(repo):
+    make = []
+    for n in range(4):
+        make.append(f"t{n}:")
+        body = "\tpytest" if n == 3 else "".join(f"\n\tmake t{n + 1} x{k}=1" for k in range(3000))[1:]
+        make.append(body)
+    root = repo({"Makefile": "\n".join(make) + "\n",
+                 ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: make t0\n"})
+    data, elapsed = _run_cli(root)
+    assert elapsed < 10
+    (job,) = [j for wf in data["ci"]["workflows"] for j in wf["jobs"]]
+    # MAX_DEPTH stops before t3; the fallback names nothing, so no tests check, but it finishes.
+    assert isinstance(job["checks"], dict)
+    assert data["scan"]["resolution_truncated"] in (True, False)
+
+
+def test_resolution_budget_is_reported(repo):
+    import agent_ready_scan as ars
+    files = {".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n" + "".join(
+        f"      - run: bash s{i}.sh\n" for i in range(50))}
+    for i in range(50):
+        files[f"s{i}.sh"] = "pytest\n" * 400
+    s = ars.Scanner(repo(files), ars.DEFAULT_MAX_FILES, ars.DEFAULT_MAX_BYTES)
+    s._budget = 1000
+    result = s.run()
+    assert result["scan"]["resolution_truncated"] is True
+
+
+@pytest.mark.parametrize("rel,content", [
+    ("package.json", "[" * 200_000),
+    (".mcp.json", '{"a":' * 50_000 + "1" + "}" * 50_000),
+    (".claude/settings.json", '{"a":' * 50_000 + "1" + "}" * 50_000),
+    (".claude/settings.local.json", "[" * 200_000),
+])
+def test_deeply_nested_json_marks_only_that_file(repo, rel, content):
+    root = repo({rel: content, "CLAUDE.md": "Run `pytest`.\n"})
+    data, elapsed = _run_cli(root)
+    assert elapsed < 10
+    assert data["context"]["agent_docs"][0]["commands"]["tests"]
+    if rel == ".mcp.json":
+        assert "error" in data["agent_config"]["mcp_servers"][0]
+    elif rel.startswith(".claude/"):
+        assert "error" in data["agent_config"]["settings"][0]
+
+
+def test_symlink_loop_is_skipped(repo):
+    root = repo({"README.md": "hi\n"})
+    (root / "a").symlink_to("b")
+    (root / "b").symlink_to("a")
+    (root / "self").symlink_to("self")
+    result = scan(root)
+    assert {"a", "b", "self"} <= set(result["scan"]["skipped"]["symlinks"])
+
+
+def test_resolve_runtime_error_is_handled(repo, monkeypatch):
+    import agent_ready_scan as ars
+    root = repo({"README.md": "hi\n"})
+    (root / "link").symlink_to("README.md")
+    scanner = ars.Scanner(root, ars.DEFAULT_MAX_FILES, ars.DEFAULT_MAX_BYTES)
+
+    def loop(*a, **k):
+        raise RuntimeError("Symlink loop")  # what Python 3.11/3.12 raise
+
+    monkeypatch.setattr(ars.os.path, "realpath", loop)
+    scanner.walk()
+    monkeypatch.undo()
+    result = scanner.run_after_walk()
+    assert "link" in result["scan"]["skipped"]["symlinks"]
+
+
+def test_very_deep_tree_is_walked_without_recursion(repo):
+    root = repo({"README.md": "hi\n"})
+    deep = root
+    for _ in range(1500):
+        deep = deep / "d"
+        os.mkdir(deep)
+    (deep / "test_deep.py").write_text("def test_x():\n    pass\n")
+    result = scan(root)
+    assert result["tests"]["files"] == 1
+
+
+def test_walk_does_not_use_os_walk():
+    import inspect
+    import agent_ready_scan as ars
+    assert "os.walk" not in inspect.getsource(ars.Scanner.walk)
+
+
+def test_package_scripts_parse_is_linear():
+    from agent_ready_scan import parse_package_scripts
+    n = 28_000
+    text = '{\n  "scripts": {\n' + ",\n".join(f'    "s{i}": "x"' for i in range(n)) + "\n  }\n}\n"
+    assert len(text) < 512 * 1024
+    start = time.perf_counter()
+    parsed = parse_package_scripts(text)
+    assert time.perf_counter() - start < 1.0
+    assert parsed["s0"]["line"] == 3 and parsed[f"s{n - 1}"]["line"] == n + 2
+
+
+def test_package_scripts_line_numbers_with_escapes():
+    from agent_ready_scan import parse_package_scripts
+    text = '{\n "name": "test",\n "scripts": {\n  "a\\"b": "x",\n  "test": "jest"\n }\n}\n'
+    parsed = parse_package_scripts(text)
+    assert parsed['a"b']["line"] == 4 and parsed["test"]["line"] == 5
+
+
+def test_oversize_mcp_json_is_reported_too_large(repo):
+    result = scan(repo({".mcp.json": '{"mcpServers": {}}' + " " * 2000}), max_bytes=1000)
+    assert result["agent_config"]["mcp_servers"] == [{"file": ".mcp.json", "error": "too_large"}]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs FIFOs")
+def test_file_swapped_for_fifo_after_listing_is_not_opened(repo):
+    import agent_ready_scan as ars
+    root = repo({"CLAUDE.md": "pytest\n"})
+    s = ars.Scanner(root, ars.DEFAULT_MAX_FILES, ars.DEFAULT_MAX_BYTES)
+    s.walk()
+    (root / "CLAUDE.md").unlink()
+    os.mkfifo(root / "CLAUDE.md")
+    start = time.perf_counter()
+    assert s.text("CLAUDE.md") is None
+    assert time.perf_counter() - start < 1.0
+    assert "CLAUDE.md" in s.skipped["special"]
+
+
+def test_file_swapped_for_symlink_after_listing_is_not_followed(repo, tmp_path):
+    import agent_ready_scan as ars
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET\n")
+    root = repo({"CLAUDE.md": "pytest\n"})
+    s = ars.Scanner(root, ars.DEFAULT_MAX_FILES, ars.DEFAULT_MAX_BYTES)
+    s.walk()
+    (root / "CLAUDE.md").unlink()
+    (root / "CLAUDE.md").symlink_to(secret)
+    assert s.text("CLAUDE.md") is None

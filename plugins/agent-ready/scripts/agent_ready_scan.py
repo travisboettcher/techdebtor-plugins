@@ -20,7 +20,8 @@ time (no nested or overlapping quantifiers) because the input is untrusted.
 
 Top-level keys (see docs/RUBRIC.md for how the skill uses them):
 
-- ``scan``: files listed and read operations (``reads``), whether listing was truncated, the limits,
+- ``scan``: files listed and read operations (``reads``), whether listing was truncated, whether
+  runner resolution hit its budget or a recipe line cap (``resolution_truncated``), the limits,
   and what was skipped (``dirs``, ``symlinks``, ``too_large``, ``binary``,
   ``unreadable``, ``special``).
 - ``ecosystems``: per ecosystem, source ``files`` counted and ``markers``
@@ -78,6 +79,8 @@ SAMPLE_CAP = 20
 CHECK_CAP = 5
 TEXT_CAP = 200
 MAX_DEPTH = 3
+RECIPE_LINE_CAP = 500
+RESOLUTION_BUDGET = 50_000
 MD_READ_CAP = 2000
 HEAD_READ_CAP = 20_000
 
@@ -363,22 +366,38 @@ def parse_taskfile(text: str):
     return tasks
 
 
-def parse_package_scripts(text: str):
+def load_json(text):
+    """(data, None) or (None, error). Untrusted input: deep nesting must not crash the scan."""
     try:
-        data = json.loads(text)
-    except ValueError:
-        return {}
+        return json.loads(text), None
+    except (ValueError, RecursionError, MemoryError):
+        return None, "not valid JSON, too deeply nested or too large to parse"
+
+
+# A JSON string key at the start of a line: alternatives start with different
+# characters, so this is linear time.
+_JSON_KEY = re.compile(r'\s*("(?:[^"\\\n]|\\.)*")\s*:')
+
+
+def parse_package_scripts(text: str):
+    data, _err = load_json(text)
     scripts = data.get("scripts") if isinstance(data, dict) else None
     if not isinstance(scripts, dict):
         return {}
     lines = text.splitlines()
     start = next((i for i, line in enumerate(lines) if '"scripts"' in line), 0)
+    key_lines = {}
+    for i in range(start + 1, len(lines)):
+        m = _JSON_KEY.match(lines[i])
+        if m:
+            key, err = load_json(m.group(1))
+            if err is None and isinstance(key, str):
+                key_lines.setdefault(key, i + 1)
     out = {}
     for name, cmd in scripts.items():
         if not isinstance(name, str) or not isinstance(cmd, str):
             continue
-        needle = json.dumps(name)
-        ln = next((i + 1 for i in range(start, len(lines)) if needle in lines[i]), start + 1)
+        ln = key_lines.get(name, start + 1)
         out[name] = {"line": ln, "recipe": [(ln, cmd)], "deps": []}
     return out
 
@@ -647,6 +666,10 @@ class Scanner:
         self._called_scripts: dict[str, dict] = {}
         self._cache: dict[str, str | None] = {}
         self._parsed: dict[tuple[str, str], dict] = {}
+        self._memo: dict[tuple, tuple | None] = {}
+        self._active: set[tuple] = set()
+        self._budget = RESOLUTION_BUDGET
+        self.resolution_truncated = False
 
     # -- listing --------------------------------------------------------
 
@@ -655,44 +678,55 @@ class Scanner:
             self.skipped[key].append(rel)
 
     def walk(self):
+        """List files depth first with an explicit stack rather than the standard library's
+        walker (recursive on 3.11), so deep trees behave the same on 3.11 to 3.13."""
         root = self.root
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-            dpath = Path(dirpath)
-            rel_dir = dpath.relative_to(root).as_posix()
-            rel_dir = "" if rel_dir == "." else rel_dir
-            keep = []
-            for d in sorted(dirnames):
-                rel = f"{rel_dir}/{d}" if rel_dir else d
-                full = dpath / d
-                if full.is_symlink():
-                    self._skip("symlinks", rel)
-                elif d in SKIP_DIRS or d.endswith(".egg-info") or (full / "pyvenv.cfg").exists():
-                    self._skip("dirs", rel)
-                else:
-                    keep.append(d)
-            dirnames[:] = keep
-            for f in sorted(filenames):
-                if len(self.files) >= self.max_files:
-                    self.truncated = True
-                    return
-                rel = f"{rel_dir}/{f}" if rel_dir else f
-                full = dpath / f
+        stack = [""]
+        while stack:
+            rel_dir = stack.pop()
+            dpath = root / rel_dir if rel_dir else root
+            try:
+                with os.scandir(dpath) as it:
+                    entries = sorted(it, key=lambda e: e.name)
+            except OSError:
+                self._skip("unreadable", rel_dir or ".")
+                continue
+            subdirs = []
+            for entry in entries:
+                name = entry.name
+                rel = f"{rel_dir}/{name}" if rel_dir else name
                 try:
-                    st = os.lstat(full)
-                    if stat.S_ISLNK(st.st_mode):
-                        target = full.resolve()
-                        if not target.is_relative_to(root) or not stat.S_ISREG(os.stat(target).st_mode):
-                            self._skip("symlinks", rel)
-                            continue
-                        full = target
-                    elif not stat.S_ISREG(st.st_mode):
-                        self._skip("special", rel)
-                        continue
+                    st = entry.stat(follow_symlinks=False)
                 except OSError:
                     self._skip("unreadable", rel)
                     continue
+                if stat.S_ISDIR(st.st_mode):
+                    if name in SKIP_DIRS or name.endswith(".egg-info") or os.path.lexists(
+                            os.path.join(entry.path, "pyvenv.cfg")):
+                        self._skip("dirs", rel)
+                    else:
+                        subdirs.append(rel)
+                    continue
+                if len(self.files) >= self.max_files:
+                    self.truncated = True
+                    return
+                full = Path(entry.path)
+                if stat.S_ISLNK(st.st_mode):
+                    try:
+                        target = Path(os.path.realpath(full))
+                        ok = target.is_relative_to(root) and stat.S_ISREG(os.stat(target).st_mode)
+                    except (OSError, RuntimeError, ValueError):
+                        ok = False  # loops raise RuntimeError on 3.11/3.12, OSError on 3.13
+                    if not ok:
+                        self._skip("symlinks", rel)
+                        continue
+                    full = target
+                elif not stat.S_ISREG(st.st_mode):
+                    self._skip("special", rel)
+                    continue
                 self.files[rel] = full
-                self.by_name.setdefault(f, []).append(rel)
+                self.by_name.setdefault(name, []).append(rel)
+            stack.extend(reversed(subdirs))
 
     # -- reading --------------------------------------------------------
 
@@ -715,17 +749,36 @@ class Scanner:
         path = self.files.get(rel)
         if path is None:
             return None
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
         try:
-            size = os.stat(path).st_size
-            if limit is None and size > self.max_bytes:
-                if rel not in self.skipped["too_large"]:
-                    self._skip("too_large", rel)
-                return None
-            with open(path, "rb") as fh:
-                data = fh.read(limit if limit is not None else self.max_bytes)
+            fd = os.open(path, flags)
         except OSError:
             self._skip("unreadable", rel)
             return None
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                if rel not in self.skipped["special"]:
+                    self._skip("special", rel)
+                return None
+            if limit is None and st.st_size > self.max_bytes:
+                if rel not in self.skipped["too_large"]:
+                    self._skip("too_large", rel)
+                return None
+            want = limit if limit is not None else self.max_bytes
+            chunks, got = [], 0
+            while got < want:
+                chunk = os.read(fd, want - got)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                got += len(chunk)
+            data = b"".join(chunks)
+        except OSError:
+            self._skip("unreadable", rel)
+            return None
+        finally:
+            os.close(fd)
         self.reads += 1
         if b"\0" in data[:8192]:
             self.skipped["binary"] += 1
@@ -863,7 +916,7 @@ class Scanner:
             text = self.text(rel)
             if text is None:
                 return []
-            lines = [(n, line) for n, line in enumerate(text.splitlines()[:500], 1)
+            lines = [(n, line) for n, line in enumerate(text.splitlines()[:RECIPE_LINE_CAP], 1)
                      if line.strip() and not line.lstrip().startswith("#")]
             return [(posixpath.basename(rel), 1, lines)]
         parsed = self._parsed_runner(kind, rel)
@@ -884,7 +937,54 @@ class Scanner:
             queue.extend(entry.get("deps", []))
         return out
 
-    def classify(self, text, base="", depth=0, chain=(), visited=frozenset(), touched=None):
+    def _resolve(self, kind, rel, targets, remaining):
+        """Checks reached through one runner invocation, as ([(kind, keyword, via)], [scripts]).
+
+        Memoised per (runner, file, targets, remaining depth) across the whole scan, so
+        a file that calls the same target thousands of times is expanded once; deduplicated
+        to one entry per (kind, keyword) and capped, so results stay small; and bounded by a
+        global line budget (``scan.resolution_truncated`` says when it ran out). None when
+        nothing resolved, or on a cycle."""
+        key = (kind, rel, targets, remaining)
+        if key in self._memo:
+            return self._memo[key]
+        if key in self._active:
+            return None
+        self._active.add(key)
+        result = None
+        try:
+            runner = self._runner_lines(kind, rel, list(targets))
+            if runner:
+                results, seen, per_kind = [], set(), {}
+                scripts = [rel] if kind == "script" else []
+                new_base = posixpath.dirname(rel)
+                for name, _ln, lines in runner:
+                    for n, line in lines[:RECIPE_LINE_CAP]:
+                        if self._budget <= 0:
+                            self.resolution_truncated = True
+                            break
+                        self._budget -= 1
+                        sub_touched = []
+                        link = {"file": rel, "line": n, "target": name}
+                        for k, kw, via in self.classify(line, new_base, MAX_DEPTH - remaining, (link,),
+                                                        touched=sub_touched):
+                            if (k, kw) in seen or per_kind.get(k, 0) >= CHECK_CAP:
+                                continue
+                            seen.add((k, kw))
+                            per_kind[k] = per_kind.get(k, 0) + 1
+                            results.append((k, kw, via))
+                        for script in sub_touched:
+                            if script not in scripts and len(scripts) < LIST_CAP:
+                                scripts.append(script)
+                    if len(lines) > RECIPE_LINE_CAP:
+                        self.resolution_truncated = True
+                result = (results, scripts)
+        finally:
+            self._active.discard(key)
+        self._memo[key] = result
+        return result
+
+    def classify(self, text, base="", depth=0, chain=(), touched=None):
         """[(kind, keyword, via)] for one line of commands.
 
         Scripts resolved along the way are appended to `touched` when given."""
@@ -904,18 +1004,15 @@ class Scanner:
             if inv is None:
                 continue
             label, kind, rel, targets = inv
-            resolved = []
-            if rel is not None and depth < MAX_DEPTH and (rel, tuple(targets)) not in visited:
-                resolved = self._runner_lines(kind, rel, targets)
-                if kind == "script" and touched is not None:
-                    touched.append(rel)
-            for name, _ln, lines in resolved:
-                new_base = posixpath.dirname(rel)
-                for n, line in lines:
-                    link = {"file": rel, "line": n, "target": name}
-                    out.extend(self.classify(line, new_base, depth + 1, chain + (link,),
-                                             visited | {(rel, tuple(targets))}, touched))
-            if not resolved:
+            resolved = None
+            if rel is not None and depth < MAX_DEPTH:
+                resolved = self._resolve(kind, rel, tuple(targets), MAX_DEPTH - depth - 1)
+            if resolved is not None:
+                results, scripts = resolved
+                if touched is not None:
+                    touched.extend(scripts)
+                out.extend((k, kw, chain + via) for k, kw, via in results)
+            else:
                 for target in targets:
                     nk = _name_kind(target)
                     if nk:
@@ -1292,12 +1389,16 @@ class Scanner:
                 elif len(sub) >= 2 and sub[0] == "agents" and name.endswith(".md"):
                     agents.append(rel)
             if name == ".mcp.json":
-                try:
-                    data = json.loads(self.text(rel) or "")
-                    servers = sorted(data.get("mcpServers", {}))[:LIST_CAP]
-                    mcp.append({"file": rel, "servers": servers})
-                except (ValueError, AttributeError, TypeError):
-                    mcp.append({"file": rel, "error": "not valid JSON or unexpected shape"})
+                text = self.text(rel)
+                if text is None:
+                    mcp.append({"file": rel, "error": self.skip_reason(rel)})
+                    continue
+                data, err = load_json(text)
+                servers = data.get("mcpServers") if isinstance(data, dict) else None
+                if err or not isinstance(servers, dict):
+                    mcp.append({"file": rel, "error": err or "unexpected shape"})
+                else:
+                    mcp.append({"file": rel, "servers": sorted(str(k)[:TEXT_CAP] for k in servers)[:LIST_CAP]})
         return {"settings": settings, "skills": skills[:LIST_CAP], "commands": commands[:LIST_CAP],
                 "agents": agents[:LIST_CAP], "mcp_servers": mcp}
 
@@ -1307,12 +1408,9 @@ class Scanner:
         if text is None:
             entry["error"] = self.skip_reason(rel)
             return entry
-        try:
-            data = json.loads(text)
-            if not isinstance(data, dict):
-                raise ValueError
-        except ValueError:
-            entry["error"] = "not valid JSON or not an object"
+        data, err = load_json(text)
+        if err or not isinstance(data, dict):
+            entry["error"] = err or "not a JSON object"
             return entry
         perms = data.get("permissions") if isinstance(data.get("permissions"), dict) else {}
         p = {}
@@ -1380,6 +1478,9 @@ class Scanner:
 
     def run(self):
         self.walk()
+        return self.run_after_walk()
+
+    def run_after_walk(self):
         ci, flow_hints = self.ci()
         specs, intent = self.specs_and_intent()
         result = {
@@ -1403,6 +1504,7 @@ class Scanner:
             "files_listed": len(self.files),
             "reads": self.reads,
             "truncated": self.truncated,
+            "resolution_truncated": self.resolution_truncated,
             "limits": {"max_files": self.max_files, "max_bytes": self.max_bytes},
             "skipped": self.skipped,
         }
