@@ -55,7 +55,7 @@ It never merges and never pushes to the default branch. It commits only if you a
 ```
 
 1. **Mine.** `scripts/retro_mine.py` (Python 3.11+, standard library only) reads `.claude/runs/*.yml` from every worktree, both rules ledgers, and this project's transcripts under `~/.claude/projects/` (including its worktrees). It emits redacted JSON: correction, interrupt, denial and revert signals, category counts, and each ledger rule's occurrences since it was added.
-2. **Verify.** Every ledger rule gets a verdict: `working` (its category has not recurred), `recurring` (it has: escalate or rewrite), or `dormant` (nothing for 90 days: retire it).
+2. **Verify.** Every ledger rule gets a verdict: `working` (nothing in its category got past it; a hook or check catching the mistake shows it fires), `recurring` (something got past it: escalate or rewrite), or `dormant` (nothing for 90 days: retire it).
 3. **Cluster** signals and findings into categories, reusing existing ones, and count recurrences. One-offs that are not critical stay notes.
 4. **Propose** at most about five changes, highest recurrence x severity first, preferring to delete or merge rules over adding them.
 5. **Gate.** Nothing lands without you (see below).
@@ -98,7 +98,7 @@ On first use the lead suggests adding `.claude/runs/` to `.gitignore`; it does n
 | `check` | Recurs after an instruction exists, needs judgment to verify, and can be written as a repeatable procedure: a `verify-<category>` skill that reports violations as `path:line` lines and PASS/FAIL. |
 | `hook` | Recurs after an instruction (or a check) exists, and can be checked mechanically: a hook or CI check that blocks it. |
 
-A `check` is a read-only skill in `.claude/skills/` or `~/.claude/skills/`. The lead picks the ones that apply to each unit's files and the tester follows them like any verifier; it never runs a fix step. A check that keeps recurring moves to a hook or test where it can be made mechanical, otherwise its procedure is rewritten. The shape is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Verify skills"), with a worked example in [`docs/examples/verify-doc-drift/SKILL.md`](docs/examples/verify-doc-drift/SKILL.md).
+A `check` is a read-only skill in `.claude/skills/` or `~/.claude/skills/`. The lead picks the ones that apply to each unit's files and the tester follows them like any verifier; it never runs a fix step. A check that mistakes keep getting past moves to a hook or test where it can be made mechanical, otherwise its procedure is rewritten. The shape is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Verify skills"), with a worked example in [`docs/examples/verify-doc-drift/SKILL.md`](docs/examples/verify-doc-drift/SKILL.md).
 | `test` | The mistake is about the code's behaviour, not process: a test or eval that fails on it. |
 
 ## Human gate and scope

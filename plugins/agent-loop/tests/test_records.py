@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -535,3 +536,57 @@ def test_record_with_verify_skills_in_the_plan_parses_and_passes_the_gate(tmp_pa
     rec = parse_yaml_lite(text)
     assert review_failures(rec) == []
     assert approval_failures(rec, required=False, repo=None, base=None) == []
+
+
+# --- catches by the rule itself are not escapes ------------------------------------
+
+def _rule_ledger(rung, category="doc-drift"):
+    return (f"schema: 1\nrules:\n  - id: {category}-1\n    category: {category}\n    rung: {rung}\n"
+            f"    scope: project\n    location: x\n    summary: s\n    added: 2026-11-10\n    baseline: 2\n    history: []\n")
+
+
+def _report(tmp_path, rung, *caught_by):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger(rung))
+    recs = [{"date": "2026-11-12", "findings": [{"category": "doc-drift", "caught_by": c} for c in caught_by]},
+            {"date": "2026-11-09", "findings": [{"category": "doc-drift", "caught_by": "human"}]}]  # before the rule
+    (rule,) = ledger_report(load_ledger(p, "project"), recs, NOW)["rules"]
+    return rule
+
+
+@pytest.mark.parametrize("rung", ["hook", "check"])
+def test_catches_by_the_rule_itself_are_not_escapes(tmp_path, rung):
+    rule = _report(tmp_path, rung, rung, rung)
+    assert (rule["occurrences_since"], rule["caught_by_rule"], rule["escaped"]) == (2, 2, 0)
+
+
+@pytest.mark.parametrize("rung", ["hook", "check"])
+def test_a_finding_caught_by_anyone_else_escaped(tmp_path, rung):
+    rule = _report(tmp_path, rung, rung, "human")
+    assert (rule["occurrences_since"], rule["caught_by_rule"], rule["escaped"]) == (2, 1, 1)
+
+
+@pytest.mark.parametrize("rung, other", [("hook", "check"), ("check", "hook")])
+def test_another_rungs_catch_is_an_escape(tmp_path, rung, other):
+    rule = _report(tmp_path, rung, other)
+    assert (rule["caught_by_rule"], rule["escaped"]) == (0, 1)
+
+
+@pytest.mark.parametrize("rung", ["instruction", "test", "note"])
+def test_other_rungs_count_every_occurrence_as_escaped(tmp_path, rung):
+    rule = _report(tmp_path, rung, "hook", "check", "tester", "ci")
+    assert (rule["occurrences_since"], rule["caught_by_rule"], rule["escaped"]) == (4, 0, 4)
+
+
+def test_split_is_none_for_a_rule_with_a_bad_date(tmp_path):
+    p = tmp_path / "rules-ledger.yml"
+    p.write_text(_rule_ledger("hook").replace("2026-11-10", "2026-02-30"))
+    (rule,) = ledger_report(load_ledger(p, "project"), [], NOW)["rules"]
+    assert rule["caught_by_rule"] is None and rule["escaped"] is None
+
+
+@pytest.mark.parametrize("doc", ["docs/DESIGN.md", "skills/lead/references/run-record.md"])
+def test_caught_by_lists_include_check(doc):
+    text = (SCRIPT.parent.parent / doc).read_text()
+    (values,) = re.findall(r"caught_by: reviewer +# (?:who noticed: )?(.*)$", text, re.M)
+    assert "check" in values.split(" | ") and "hook" in values.split(" | ")

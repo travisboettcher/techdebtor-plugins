@@ -46,7 +46,7 @@ Arguments given: `$ARGUMENTS`
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" --root "<ROOT>" --since 30d --max-signals 200 > "<OUT>"
 ```
 
-Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `occurrences_since`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
+Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `occurrences_since`, split into `caught_by_rule` and `escaped`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
 
 Windows (`window`): the miner reads every run record in every worktree of the project whatever `--since` says, so each rule's `occurrences_since` already covers all records since its `added` date; only `category_counts` and `run_records.records` are limited to the requested window (`window.since`). Transcript signals reach further back: to the `added` date of the oldest ledger rule, at most 90 days (`window.transcripts_since`, with the reason in `window.transcripts_extended_for`). Signals older than `window.since` are there to verify ledger rules (step 2); do not count them toward new proposals (steps 3-4).
 
@@ -54,12 +54,12 @@ Signals are heuristics. Discard false positives (a "no" that answered a question
 
 ### 2. Verify every ledger rule
 
-For each rule in both ledgers, add to the run-record occurrences (`occurrences_since`) any signals that clearly belong to the rule's category and are dated after `added`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
+For each rule in both ledgers, add to the run-record escapes (`escaped`) any signals that clearly belong to the rule's category and are dated after `added`; a signal is always an escape. `caught_by_rule` counts findings a `hook` or `check` rule caught itself: the rule fired, and those never make it `recurring`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
 
 | Verdict | When | Action |
 |---|---|---|
-| `working` | no occurrence since `added` | keep |
-| `recurring` | one or more | propose the next rung up, or a rewrite if the rule is unclear or the agent could not have seen it; for a `check`, see DESIGN.md "Verify skills" (escalation) |
+| `working` | nothing escaped since `added` (catches by the rule itself allowed) | keep; if it catches constantly, note that the instruction upstream may be unclear, but do not escalate |
+| `recurring` | one or more escaped | propose the next rung up, or a rewrite if the rule is unclear or the agent could not have seen it; for a `check`, see DESIGN.md "Verify skills" (escalation) |
 | `dormant` | no occurrence, `days_since_added` >= 90, and no relevant work in 90 days (no record or signal touching what the rule guards) | propose retiring it |
 
 Also confirm the rule still exists at `location`; a missing rule is reported, not silently re-added. Prepare one `history` entry per rule (`date`, `occurrences_since`, `verdict`); these go in the proposal commit, not on the default branch.
