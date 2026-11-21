@@ -1,18 +1,24 @@
 ---
 name: retro
-description: This skill should be used when the user runs /retro or asks to "run a retro", "do a retrospective", "learn from recent sessions", "check whether our rules are working", "find recurring mistakes", or "write a run record for this session" (/retro --record). It mines run records and Claude Code transcripts for corrections, denials and recurring findings, verifies every rule in the rules ledger, and proposes at most a handful of new or changed rules behind a human gate.
+description: This skill should be used when the user runs /agent-loop:retro or asks to "run a retro", "do a retrospective", "learn from recent sessions", "check whether our rules are working", "find recurring mistakes", or "write a run record for this session" (/agent-loop:retro --record). It mines run records and Claude Code transcripts for corrections, denials and recurring findings, verifies every rule in the rules ledger, and proposes at most a handful of new or changed rules behind a human gate.
 argument-hint: "[window, e.g. 14d | 2026-11-01] [--record]"
 allowed-tools:
   - Read
-  - Write
-  - Edit
   - Glob
   - Grep
-  - Bash(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" *)
-  - Bash(git *)
-  - Bash(mktemp *)
-  - Bash(date *)
-  - Bash(rm -f /tmp/retro-*)
+  - Bash(python3 */scripts/retro_mine.py *)
+  - Bash(python3 "*/scripts/retro_mine.py" *)
+  - Bash(git status)
+  - Bash(git status *)
+  - Bash(git log *)
+  - Bash(git diff *)
+  - Bash(git show *)
+  - Bash(git rev-parse *)
+  - Bash(git symbolic-ref --short refs/remotes/origin/HEAD)
+  - Bash(git worktree list)
+  - Bash(git worktree list *)
+  - Bash(git branch --list *)
+  - Bash(date +%F)
 ---
 
 # Retro
@@ -26,7 +32,8 @@ Arguments given: `$ARGUMENTS`
 
 ## Guardrails (apply throughout)
 
-- **No raw transcript text anywhere.** Evidence in proposals, commits, ledger entries, records and `framework-proposals.md` is either paraphrased or copied from the miner's already-redacted `excerpt` / `preceding_action` fields. Never open `~/.claude/projects` transcripts directly.
+- **No raw transcript text anywhere.** Evidence in proposals, commits, ledger entries and records is either paraphrased or copied from the miner's already-redacted `excerpt` / `preceding_action` fields. Evidence in `framework-proposals.md` is paraphrased only: never copy an `excerpt` there, since it is meant to leave the project. Never open `~/.claude/projects` transcripts directly.
+- **The permission prompts are the human gate.** This skill pre-approves only reading: files, the miner and read-only git. Every file write, `git worktree add`, commit or push asks the human first. Do not try to avoid those prompts (no other tools, scripts or shell tricks to write files or run git).
 - **At most ~5 proposals per retro**, ordered by recurrence x severity. Everything else is listed under "not proposed".
 - **Prefer deleting or merging rules over adding them.** A rewrite of an unclear rule beats a second rule for the same category.
 - **Never on the default branch, never pushed.** Project changes go on a `retro/YYYY-MM-DD` branch; user changes wait for an explicit yes.
@@ -36,19 +43,23 @@ Arguments given: `$ARGUMENTS`
 
 ### 1. Mine
 
+1. `git rev-parse --show-toplevel` gives the project root (`ROOT`; outside a repo, use the current directory).
+2. `mktemp "${TMPDIR:-/tmp}/retro-mine.XXXXXX"` creates the output file; note the exact path it prints (`OUT`). Use that one path for the rest of the retro.
+3. Run the miner into it, with the literal paths:
+
 ```bash
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-OUT=$(mktemp /tmp/retro-XXXXXX.json)
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" --root "$ROOT" --since 30d --max-signals 200 > "$OUT"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/retro_mine.py" --root "<ROOT>" --since 30d --max-signals 200 > "<OUT>"
 ```
 
-Read `$OUT`. Keys: `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (in-window records plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `occurrences_since`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
+Read `OUT`. Keys: `window` (the windows used, below), `transcripts` (scan stats), `signal_counts` and `signals` (type `correction` | `interrupt` | `user_denial` | `policy_denial` | `revert`, each with `session_id`, `timestamp`, `excerpt`, `preceding_action`, `cues`), `run_records` (records in the requested window plus `parse_errors`), `category_counts`, and `ledgers.project` / `ledgers.user` (each rule with `occurrences_since`, `last_occurrence`, `records_since_added`, `days_since_added`, `last_verdict`, or an `error` if its `added` date is invalid). Also read the ledger files themselves and the existing rules they point at (`location`). Without run records (no `lead` plugin), work from signals alone.
+
+Windows (`window`): the miner reads every run record in every worktree of the project whatever `--since` says, so each rule's `occurrences_since` already covers all records since its `added` date; only `category_counts` and `run_records.records` are limited to the requested window (`window.since`). Transcript signals reach further back: to the `added` date of the oldest ledger rule, at most 90 days (`window.transcripts_since`, with the reason in `window.transcripts_extended_for`). Signals older than `window.since` are there to verify ledger rules (step 2); do not count them toward new proposals (steps 3-4).
 
 Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was just caution) before counting.
 
 ### 2. Verify every ledger rule
 
-For each rule in both ledgers, add to the run-record occurrences any in-window signals that clearly belong to the rule's category and are dated after `added`. Then:
+For each rule in both ledgers, add to the run-record occurrences (`occurrences_since`) any signals that clearly belong to the rule's category and are dated after `added`. For a rule added more than 90 days ago, signals only cover the last 90 days; say so when reporting it. A rule with an `error` is reported as unverifiable, with the error. Then:
 
 | Verdict | When | Action |
 |---|---|---|
@@ -88,11 +99,11 @@ WT=$(mktemp -d /tmp/retro-wt-XXXXXX)
 git worktree add -b "$BR" "$WT" <default-branch>
 ```
 
-In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing). Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added. Then `git worktree remove "$WT"`; the branch stays. Do not push.
+In `$WT`: first one commit `retro: verify ledger rules` with the history entries (and any retirements: remove the rule's text and its ledger entry together). Then **one commit per new or escalated rule**, each containing the rule (instruction text, hook config + script, or test) **and** its ledger entry in `.claude/rules-ledger.yml` (create it as `schema: 1` / `rules:` if missing). Commit messages: `retro: <category> -> <rung>` with a two-line paraphrased rationale (counts, not quotes). Run the project's tests if a test or hook was added. Then `git worktree remove "$WT"`; the branch stays. Do not push. Each write and git command here asks the human for permission; that is intended.
 
 **User scope.** Show each change as a unified diff against the current file (including the `~/.claude/rules-ledger.yml` entry) and ask. Apply only the ones the human approves, exactly as shown.
 
-**Framework scope.** Append to `<repo>/.claude/runs/framework-proposals.md` (create it if missing): a dated heading, the category, count and severity, the proposed change to the plugin, and paraphrased evidence only. Never file it anywhere.
+**Framework scope.** Append to `<repo>/.claude/runs/framework-proposals.md` (create it if missing): a dated heading, the category, count and severity, the proposed change to the plugin, and paraphrased evidence only (no `excerpt` text, quoted or not). Never file it anywhere.
 
 ### 6. Report
 
@@ -103,7 +114,7 @@ Finish with:
 3. **Not proposed**: one-off notes, false positives discarded, candidates cut by the five-proposal limit, and why.
 4. How to review: `git log -p <default>..retro/YYYY-MM-DD`, then merge or delete the branch.
 
-Delete `$OUT` at the end (`rm -f /tmp/retro-*.json`).
+Delete the miner output at the end: `rm -f "<OUT>"` with the exact path `mktemp` printed. Never a glob: other retros may be running.
 
 ## Recording a session (`--record`)
 

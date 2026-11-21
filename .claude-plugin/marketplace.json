@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "agent-loop",
-      "description": "An agent graph that improves itself: /lead plans a task and runs implementer, tester and independent reviewer agents, recording what each stage caught; /retro mines those records and your session transcripts for recurring mistakes, promotes fixes up a ladder (instruction, hook, test) behind a human gate, and checks that each rule actually worked.",
+      "description": "An agent graph that improves itself: /agent-loop:lead plans a task and runs implementer, tester and independent reviewer agents, recording what each stage caught; /agent-loop:retro mines those records and your session transcripts for recurring mistakes, promotes fixes up a ladder (instruction, hook, test) behind a human gate, and checks that each rule actually worked.",
       "source": "./plugins/agent-loop",
       "category": "development"
     }

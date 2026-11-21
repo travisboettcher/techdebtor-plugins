@@ -42,17 +42,17 @@ It never commits, pushes or opens pull requests unless you ask.
 ### `/agent-loop:retro`: the feedback loop
 
 ```
-lead runs ──► run records ──┐
-ordinary sessions ──► transcripts ──┤
-                                    ▼
-                                 /retro ──► proposals (branch / diff) ──► you merge
-                                    │
-                         rules ledger ◄── each merged rule, with the category it targets
-                                    │
-                    next /retro: did the category stop recurring? keep / escalate / retire
+/agent-loop:lead runs ──► run records ──┐
+             ordinary sessions ──► transcripts ──┤
+                                                 ▼
+                                       /agent-loop:retro ──► proposals (branch / diff) ──► you merge
+                                                 │
+                                      rules ledger ◄── each merged rule, with the category it targets
+                                                 │
+                        next /agent-loop:retro: did the category stop recurring? keep / escalate / retire
 ```
 
-1. **Mine.** `scripts/retro_mine.py` (Python 3.11+, standard library only) reads `.claude/runs/*.yml`, both rules ledgers, and this project's transcripts under `~/.claude/projects/` (including its worktrees). It emits redacted JSON: correction, interrupt, denial and revert signals, category counts, and each ledger rule's occurrences since it was added.
+1. **Mine.** `scripts/retro_mine.py` (Python 3.11+, standard library only) reads `.claude/runs/*.yml` from every worktree, both rules ledgers, and this project's transcripts under `~/.claude/projects/` (including its worktrees). It emits redacted JSON: correction, interrupt, denial and revert signals, category counts, and each ledger rule's occurrences since it was added.
 2. **Verify.** Every ledger rule gets a verdict: `working` (its category has not recurred), `recurring` (it has: escalate or rewrite), or `dormant` (nothing for 90 days: retire it).
 3. **Cluster** signals and findings into categories, reusing existing ones, and count recurrences. One-offs that are not critical stay notes.
 4. **Propose** at most about five changes, highest recurrence x severity first, preferring to delete or merge rules over adding them.
@@ -73,7 +73,7 @@ outcome: completed
 rounds: 2
 stages: [plan, implement, test, review, implement, test, review]
 findings:
-  - stage: review
+  - stage: implement          # where the mistake was made; caught_by says who noticed
     category: missing-error-handling
     severity: major
     detail: "Dry run still opened the output file for writing."
@@ -118,7 +118,7 @@ Whether `.claude/runs/` is committed or gitignored is up to each project.
 
 Transcripts contain secrets and private details, so the miner treats them as hostile input:
 
-- Everything that leaves it is redacted first: API keys and tokens (GitHub, OpenAI/Anthropic-style `sk-`, Slack, AWS), JWTs, long hex and base64 runs, `Authorization` / `Bearer` headers, credentials in URLs, `SOMETHING_KEY|TOKEN|SECRET|PASSWORD=value`, private key blocks, emails, IPv4 addresses, and the user name in home-directory paths. When in doubt it redacts.
+- Everything that leaves it is redacted first: API keys and tokens (GitHub, GitLab, npm, PyPI, Hugging Face, OpenAI/Anthropic-style `sk-`, Slack, AWS), JWTs, long hex and base64 runs, `Authorization` / `Bearer` headers, credentials in URLs and on command lines (`curl -u user:pass`, `--password VALUE`, `mysql -pVALUE`), `SOMETHING_KEY|TOKEN|SECRET|PASSWORD=value`, private key blocks, emails, IPv4 addresses, and the user name in home-directory paths, including when glued to an identifier (`host_10.0.0.5`). When in doubt it redacts.
 - Excerpts are short (300 characters for your message, 200 for the agent action before it).
 - The skill never reads transcripts directly and never copies raw transcript text into a proposal, commit, ledger or record: evidence is paraphrased or taken from the miner's redacted output.
 - Nothing is sent anywhere. The plugin makes no network calls.

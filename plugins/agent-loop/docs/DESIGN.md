@@ -5,14 +5,14 @@ The `agent-loop` plugin has two halves, the `lead` skill (with its implementer, 
 ## The loop
 
 ```
-lead run ──► run record ──┐
-ordinary sessions ──► transcripts ──┤
-                                    ▼
-                                 /retro ──► proposals (branch / draft) ──► human merges
-                                    │
-                         rules ledger ◄── each merged rule, with the category it targets
-                                    │
-                    next /retro: did the category stop recurring? keep / escalate / retire
+/agent-loop:lead run ──► run record ──┐
+         ordinary sessions ──► transcripts ──┤
+                                             ▼
+                                   /agent-loop:retro ──► proposals (branch / draft) ──► human merges
+                                             │
+                                  rules ledger ◄── each merged rule, with the category it targets
+                                             │
+                    next /agent-loop:retro: did the category stop recurring? keep / escalate / retire
 ```
 
 The model does not learn; the scaffolding around it does. A rule is only an improvement if a later retro can show its category stopped recurring.
@@ -32,7 +32,7 @@ Run records are local evidence; projects decide whether to commit or gitignore `
 
 ## Run record (`.claude/runs/*.yml`)
 
-Written by the `lead` skill at the end of every run, and by hand or by `/retro --record` for any session worth logging.
+Written by the `lead` skill (`/agent-loop:lead`) at the end of every run, and by hand or by `/agent-loop:retro --record` for any session worth logging.
 
 ```yaml
 schema: 1
@@ -47,14 +47,14 @@ stages:                       # what ran, in order; repeated stages repeat (impl
   - test
   - review
 findings:                     # anything a later stage (or the human) had to catch or fix
-  - stage: review             # plan | implement | test | review | human | ci
+  - stage: implement          # where the mistake was made: plan | implement | test | review
     category: generated-file-hand-edit   # kebab-case; reuse existing categories (see ledger) before inventing one
     severity: major           # minor | major | critical
     detail: "Edited the generated compose file instead of its source."
     caught_by: reviewer       # which stage noticed: tester | reviewer | human | ci | hook | self
     fixed: true
 rejected:                     # optional: findings a stage reported that turned out to be wrong
-  - stage: review
+  - stage: review             # here: the stage that reported the wrong finding
     category: missing-null-check
     reason: "The value is validated by the caller at the cited line."
 notes: "Free text, optional."
@@ -63,14 +63,14 @@ notes: "Free text, optional."
 Rules:
 - `category` is the unit of measurement. Prefer an existing category from the ledger or earlier records; a new one is fine when nothing fits.
 - A finding is something that went wrong and was caught by a *later* stage, the human, CI or a hook, not a summary of the work. Mistakes an agent catches in its own work before reporting are not findings.
-- `stage` is where the mistake was made; `caught_by` is who noticed. The lead's own mistakes (a wrong plan, a bad brief) are `stage: plan`; `caught_by: self` means the stage that made the mistake noticed it later in the run.
+- `stage` is where the mistake was made, never who noticed it; `caught_by` is who noticed. A defect the tester or reviewer finds in the implementation is `stage: implement` with `caught_by: tester` or `caught_by: reviewer`. A missing or wrong acceptance criterion or verifier, a wrong plan or a bad brief (the lead's own mistakes) is `stage: plan`. `stage: test` and `stage: review` are only for mistakes the tester or reviewer made themselves (a check skipped, a failure misreported) that someone else caught later. `caught_by: self` means the stage that made the mistake noticed it later in the run.
 - `outcome` is `completed` when the run finished and is waiting on the human, and `in-progress` only when it stopped part-way. The human's decision (`merged`, `reworked`, `abandoned`) replaces it when known.
 - `rejected` records false positives, so a retro can measure how often a stage (usually the reviewer) is wrong; a stage that is often wrong is itself a candidate for a rule.
 - Never put secrets, tokens, hostnames of private systems, or personal data in a record.
 
 ## Rules ledger (`rules-ledger.yml`)
 
-Maintained by `/retro`. One entry per rule the human merged.
+Maintained by `/agent-loop:retro`. One entry per rule the human merged.
 
 ```yaml
 schema: 1
@@ -98,7 +98,11 @@ rules:
 | `hook` | Recurs after an `instruction` exists, and can be checked mechanically: a hook or CI check that blocks it. |
 | `test` | The mistake is about behaviour of the code, not process: a test or eval that fails on it. |
 
-Verification on each retro, for every ledger rule. Occurrences are counted strictly after `added` (a record dated the same day as the rule predates it), from run-record findings plus transcript signals the retro assigned to the category:
+Verification on each retro, for every ledger rule. Occurrences are counted strictly after `added` (a record dated the same day as the rule predates it), from run-record findings plus transcript signals the retro assigned to the category. The windows:
+- Run records are small, so the miner reads all of them (from every worktree of the project) whatever `--since` says; a rule's run-record occurrences cover everything since its `added` date. Only `category_counts` is limited to the requested window.
+- Transcript signals cover the requested window, extended back automatically to the `added` date of the oldest rule in either ledger, but never more than 90 days before the retro. A rule older than that is checked against the last 90 days of transcripts only. The miner reports the windows it actually used under `window`.
+
+Verdicts:
 - `working`: the category has not recurred since the rule was added.
 - `recurring`: it has. Propose the next rung up (or a rewrite, if the rule is unclear).
 - `dormant`: the rule is at least 90 days old and no work in that time touched what it governs, so there was nothing for it to prevent. The miner reports `days_since_added` and `records_since_added`; the retro judges relevance. Propose retiring it, so instructions don't accumulate forever.
@@ -114,8 +118,8 @@ Each proposal is classified before it is written:
 
 ## Human gate
 
-`/retro` never edits instructions, hooks or the ledger on the default branch. It writes proposals on a new branch (project scope) or as a reviewable diff (user scope) and stops. The ledger entry is added in the same change as the rule, so merging the rule is what records it.
+`/agent-loop:retro` never edits instructions, hooks or the ledger on the default branch. It writes proposals on a new branch (project scope) or as a reviewable diff (user scope) and stops. The ledger entry is added in the same change as the rule, so merging the rule is what records it. The retro skill pre-approves only reading (files, the miner, read-only git), so every file write, worktree, commit or push it attempts goes through Claude Code's permission prompt: that prompt is part of the gate.
 
 ## Privacy
 
-Transcripts contain secrets and private details. The miner redacts anything secret-shaped (tokens, keys, passwords, `KEY=value` with long values, bearer headers, IP addresses, emails, and the local user name) before any text leaves it, and keeps excerpts short. Nothing from a transcript is ever sent anywhere by these plugins.
+Transcripts contain secrets and private details. The miner redacts anything secret-shaped (tokens, keys, passwords, `KEY=value` assignments, command-line credentials, bearer headers, IP addresses, emails, and the local user name, also when glued to an identifier with `_`) before any text leaves it, and keeps excerpts short. Nothing from a transcript is ever sent anywhere by these plugins.

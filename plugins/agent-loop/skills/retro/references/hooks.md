@@ -29,7 +29,7 @@ The script reads the hook input JSON on stdin (`tool_name`, `tool_input`, `cwd`,
 
 ```python
 #!/usr/bin/env python3
-"""<rule-id>: <one-line summary>. Added by /retro; see .claude/rules-ledger.yml."""
+"""<rule-id>: <one-line summary>. Added by /agent-loop:retro; see .claude/rules-ledger.yml."""
 import json
 import sys
 

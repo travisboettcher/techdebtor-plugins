@@ -1,6 +1,6 @@
 ---
 name: lead
-description: This skill should be used when the user runs /lead with a task, or asks for a task to be done "with the lead", "with the agent team", or "as tech lead". It plans the task with acceptance criteria and verifiers, delegates to implementer, tester and reviewer subagents in a bounded loop, and writes a run record of every finding to .claude/runs/.
+description: "/agent-loop:lead <task>: plans the task with acceptance criteria and verifiers, runs implementer, tester and reviewer agents in a bounded loop, and writes a run record of every finding to .claude/runs/."
 argument-hint: <task description>
 disable-model-invocation: true
 ---
@@ -45,8 +45,9 @@ Brief the `agent-loop:implementer` agent with: the step(s), the acceptance crite
 
 Brief the `agent-loop:tester` agent with: the acceptance criteria, the verifiers, and the rules brief. It runs them and reports; it does not fix code.
 
-- Every failure it reports is a finding (stage `test`, caught_by `tester`).
-- If the tester reports a verifier is missing or broken, that is a finding too.
+- Every failure it reports is a finding with `caught_by: tester`, recorded at the stage where the mistake was made: `stage: implement` for a defect in the change, `stage: plan` when the acceptance criterion or verifier itself is missing or wrong.
+- If the tester reports a verifier is missing or broken, that is a finding too (`stage: plan`, `caught_by: tester`).
+- A verifier reported BLOCKED (missing tool, credentials, network, broken environment) is not something the implementer can fix; see step 6.
 
 ## 5. Review
 
@@ -57,13 +58,15 @@ Brief the `agent-loop:reviewer` agent with only:
 
 Do **not** pass the implementer's reasoning, its report, the tester's report, or your own opinion of the change. The reviewer's value is an independent read.
 
-Verify each reviewer finding yourself before acting on it (read the cited line). Drop findings you can show are wrong, and list them under the run record's `rejected`, with the reason. Every confirmed finding is a finding (stage `review`, caught_by `reviewer`).
+Verify each reviewer finding yourself before acting on it (read the cited line). Drop findings you can show are wrong, and list them under the run record's `rejected`, with the reason. Every confirmed finding is a finding with `caught_by: reviewer`, at the stage where the mistake was made: `stage: implement` for a defect in the change, `stage: plan` when the plan or an acceptance criterion was wrong or missing.
 
 ## 6. Loop
 
 If the tester or reviewer reported anything you confirmed, send the confirmed findings (with file:line and failure scenario) back to the implementer, then test and review again. A round is implement, test, review.
 
 Stop when a round ends with all verifiers passing and no confirmed review findings, or after **3 rounds** (or the number the human gave). On hitting the limit, stop and report to the human what is still failing; do not keep going.
+
+If the tester reports a verifier BLOCKED (the environment, a missing tool, missing credentials or access), stop and ask the human how to proceed; do not send it to the implementer or spend rounds on it, since no code change fixes it. Do not silently drop the verifier or mark its criterion as passed.
 
 ## 7. Record
 
@@ -82,14 +85,14 @@ stages:                       # what actually ran, in order (repeat per round)
   - test
   - review
 findings:
-  - stage: review             # plan | implement | test | review | human | ci
+  - stage: implement          # where the mistake was made: plan | implement | test | review
     category: kebab-case-category
     severity: major           # minor | major | critical
     detail: "What went wrong, in one or two sentences."
     caught_by: reviewer       # tester | reviewer | human | ci | hook | self
     fixed: true
 rejected:                     # optional: reported findings you showed were wrong
-  - stage: review
+  - stage: review             # here: the stage that reported the wrong finding
     category: kebab-case-category
     reason: "Why it was wrong."
 notes: "Optional free text."
@@ -97,7 +100,8 @@ notes: "Optional free text."
 
 Rules for the record:
 - A finding is something that went wrong and was caught. Not a summary of the work. A clean run has `findings: []`.
-- Record every finding from every stage and round: tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief). Record your own mistakes with `stage: plan` and `caught_by: self` (or whoever caught them). Do not soften or omit them.
+- Record every finding from every stage and round: tester failures, confirmed review findings, problems the human pointed out, deviations you had to correct, and mistakes you made yourself (a wrong plan, a missing criterion, a bad brief). Do not soften or omit them.
+- `stage` is where the mistake was made, never who caught it; `caught_by` is who caught it. A defect in the change found by the tester, reviewer, human or CI is `stage: implement`. A missing or wrong acceptance criterion or verifier, a wrong plan or a bad brief is `stage: plan` (`caught_by: self` if you noticed it yourself). `stage: test` / `stage: review` only for mistakes the tester or reviewer made themselves.
 - Reuse an existing category from step 1 when one fits. Invent a new kebab-case category only when none does; name the kind of mistake, not the incident (`missing-input-validation`, not `null-in-parse-config`).
 - `outcome`: `completed` when the run finished, `in-progress` only if it stopped part-way, unless the human has told you the change was merged, reworked or abandoned. Update the record if they tell you later in the session.
 - Never put secrets, tokens, private hostnames or personal data in a record.
