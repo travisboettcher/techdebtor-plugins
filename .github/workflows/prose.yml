@@ -45,10 +45,20 @@ jobs:
           echo "$dir" >> "$GITHUB_PATH"
       - name: Run Vale
         # Relative paths from the repository root: .vale.ini's globs pick each file's style by path.
+        # One Vale run over every file (no xargs, which could split it into several JSON documents).
         run: |
-          set -euo pipefail
+          set -uo pipefail
           vale --version
-          git ls-files -z '*.md' | xargs -0 -r vale --output=JSON --no-exit > "$RUNNER_TEMP/vale.json"
+          mapfile -d '' files < <(git ls-files -z '*.md')
+          status=0
+          vale --output=JSON --no-exit "${files[@]}" > "$RUNNER_TEMP/vale.json" 2> "$RUNNER_TEMP/vale.err" || status=$?
+          if [ "$status" -ne 0 ]; then
+            # Vale itself failed (configuration or runtime error): its error is JSON on stderr.
+            cat "$RUNNER_TEMP/vale.err" >&2
+            python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.err" || true
+            echo "::error title=Vale::Vale exited $status before linting; see its error above"
+            exit 1
+          fi
           python3 .github/scripts/vale_annotations.py "$RUNNER_TEMP/vale.json"
 
   token-budget:
