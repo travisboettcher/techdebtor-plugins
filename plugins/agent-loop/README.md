@@ -61,7 +61,7 @@ Each specialist is its own agent with one narrow job, the fewest tools that work
 
 When no unit has a risk tag, the lead skips the coordinators and runs the baseline pair directly. The specialists' shared rules and report formats are in [`docs/specialists/`](docs/specialists).
 
-New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also tune the defaults below and add specialists to a tag. It cannot remove a tag's floor (the safeguards that always ran: least privilege for `permissions`, regex timing for `regex`, the measurement audit for `test-infra`, the security reviewer for `untrusted-input` and `security-sensitive`; and contract tests for `public-api`), change the baseline, or raise the budget past its ceiling; such entries are reported and ignored.
+New heavy specialists are opt-in and report-only until your project turns them on in `.claude/agent-loop/selection.yml`, which can also tune the defaults below and add specialists to a tag. It cannot remove a tag's floor (the safeguards that always ran: least privilege for `permissions`, regex timing for `regex`, the measurement audit for `test-infra`, the security reviewer for `untrusted-input` and `security-sensitive`, plus the contract tester for `public-api`), change the baseline, or raise the budget past its ceiling; such entries are reported and ignored.
 
 ```yaml
 schema: 1

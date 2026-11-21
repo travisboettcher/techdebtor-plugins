@@ -200,6 +200,9 @@ def test_the_level_specialists_jobs():
     for word in ("lowest level", "`wrong-test-level`", "`missing-test-level`", "`missing-contract-test`",
                  "`inverted-pyramid`", "test runner's report", "Never run"):
         assert word in strategist, word
+    calls = {tag for tag, row in TABLE["tags"].items()
+             if {"contract-tester", "integration-tester", "system-tester"} & set(row["run"])}
+    assert calls and all(f"`{tag}`" in strategist for tag in calls)  # the tags that call for a level
     _, contract = agent("contract-tester")
     assert "`missing-contract-test`" in contract and "BLOCKED" in contract and "heavy_lock.py" in contract
     _, integration = agent("integration-tester")
