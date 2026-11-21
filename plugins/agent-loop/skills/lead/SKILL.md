@@ -96,7 +96,7 @@ Before reporting done, check that nothing changed since the last review: rerun t
 
 ## 9. Record
 
-Always write a run record, including when the run is abandoned or stopped at the round limit. Path: `.claude/runs/YYYY-MM-DD-<slug>.yml` (today's date, a short kebab-case slug of the task; add `-2`, `-3` if the file exists). Read `${CLAUDE_SKILL_DIR}/references/run-record.md` now for its shape and rules, and follow them. The record holds: every finding from every stage and round, including your own mistakes, with `stage` where the mistake was made and `caught_by` who caught it, and `should_have_caught_at` on each one that escaped the swarm or got past a test; the plan record from step 3 (with each unit's tags and the test plan's target levels); the coordinators' `selection`; the baseline failures from step 2.
+Always write a run record, including when the run is abandoned or stopped at the round limit. Path: `.claude/runs/YYYY-MM-DD-<slug>.yml` (today's date, a short kebab-case slug of the task; add `-2`, `-3` if the file exists). Read `${CLAUDE_SKILL_DIR}/references/run-record.md` now for its shape and rules, and follow them. The record holds every finding from every stage and round, including your own mistakes, with `stage` where the mistake was made and `caught_by` who caught it, and `should_have_caught_at` on each one that escaped the swarm or got past a test. It also holds the plan record from step 3 (with each unit's tags and the test plan's target levels), the coordinators' `selection` and the baseline failures from step 2.
 
 Then check it with `scripts/record_gate.py` as the reference's "Checking the record" says. A failing check blocks "done"; never edit the record only to pass it.
 

@@ -27,7 +27,7 @@ Classify each test in this order, and say which way you used:
 2. **The project's own convention**, only where real dependencies cannot be seen: directories (`tests/unit/`, `tests/e2e/`), naming, markers, separate CI jobs. Say that the level comes from convention.
 3. Otherwise **`unclassified`**. Report it as such; never guess.
 
-A test's stubs of other services, at any level (WireMock or a similar wire stub, a fake server, recorded provider fixtures), are checked for provenance by the contract tester, and by the service tester for the service tests it runs: generated from or verified against a contract (consumer-driven contract stubs, a contract stub runner, mocks driven by the API spec). A hand-written stub with no contract is `unverified-stub`: blocking when the change adds or changes it, report-only for one already there.
+A test's stubs of other services, at any level (WireMock or a similar wire stub, a fake server, recorded provider fixtures), are checked for provenance by the contract tester, and by the service tester for the service tests it runs. A checked stub is generated from or verified against a contract (consumer-driven contract stubs, a contract stub runner, mocks driven by the API spec). A hand-written stub with no contract is `unverified-stub`: blocking when the change adds or changes it, report-only for one already there.
 
 A contract test is recognised by what it checks (one side against the other's expectations or a schema), or by the project's contract tooling: consumer-driven contract files, a schema compatibility step, a broker.
 
