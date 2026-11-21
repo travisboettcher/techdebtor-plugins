@@ -5,7 +5,7 @@ Usage: python3 token_budget.py [--root .] [--budgets .github/token-budgets.json]
                                [--claude "npx -y @anthropic-ai/claude-code@<version>"]
 
 For every plugin in .claude-plugin/marketplace.json, runs
-`<claude> --plugin-dir <source> plugin details <name>`, reads the
+`<claude> --plugin-dir <source> plugin details -- <name>`, reads the
 "Always-on: ~N tok" line and compares N with the plugin's ceiling in the
 budgets file ({"always_on_tokens": {"<name>": <ceiling>}}). A plugin whose
 directory is not on this branch, or whose source is not a local path, is
@@ -110,7 +110,8 @@ def check_plugin(root, plugin, budgets, claude):
     if name not in budgets:
         annotate("error", f"{name} has no ceiling: add it to the budgets file")
         return False
-    argv = claude + ["--plugin-dir", str(directory), "plugin", "details", name]
+    # "--" ends the options: a name from the marketplace is never read as one.
+    argv = claude + ["--plugin-dir", str(directory), "plugin", "details", "--", name]
     try:
         with tempfile.TemporaryDirectory(prefix="token-budget-") as home:
             proc = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT, cwd=root,

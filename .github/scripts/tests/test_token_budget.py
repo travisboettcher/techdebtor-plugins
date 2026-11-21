@@ -71,8 +71,8 @@ def fake_claude(tmp_path, costs, exit_code=0):
     script.write_text(textwrap.dedent(f"""\
         import sys
         args = sys.argv[1:]
-        assert args[0] == "--plugin-dir" and args[2:4] == ["plugin", "details"], args
-        name = args[4]
+        assert args[0] == "--plugin-dir" and args[2:5] == ["plugin", "details", "--"], args
+        name = args[5]
         print({DETAILS!r}.format(name=name, cost={costs!r}[name]))
         sys.exit({exit_code})
         """))
@@ -160,3 +160,9 @@ def test_the_cli_runs_signed_out_in_a_fresh_home(repo, capsys, monkeypatch, tmp_
     assert "ANTHROPIC_API_KEY" not in env and "CLAUDE_CODE_OAUTH_TOKEN" not in env
     assert env["HOME"] != str(Path.home()) and env["CLAUDE_CONFIG_DIR"].startswith(env["HOME"])
     assert not Path(env["HOME"]).exists()
+
+
+def test_a_name_starting_with_a_dash_is_never_an_option(repo, capsys):
+    write_marketplace(repo, [{"name": "--help", "source": "./plugins/alpha"}])
+    (repo / "budgets.json").write_text(json.dumps({"always_on_tokens": {"--help": 1200}}))
+    assert check(repo, fake_claude(repo, {"--help": "~5"})) == 0
