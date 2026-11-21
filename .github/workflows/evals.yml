@@ -1,0 +1,220 @@
+name: Evals
+
+# Behavioural evals (`claude plugin eval`) for every plugin in the marketplace that has an
+# evals/ directory. They call the Anthropic API, so they cost money and never run on every
+# push: nightly on main (the `full` set), by hand, and on a pull request only once a
+# maintainer adds the `run-evals` label (the `smoke` set, again on each push while the
+# label stays).
+#
+# Needs the repository secret ANTHROPIC_API_KEY (Settings > Secrets and variables >
+# Actions). Without it (always the case for pull requests from forks) the job skips with
+# a notice. There is deliberately no pull_request_target trigger: a fork's code never
+# runs with the secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: "Plugin to evaluate (its directory name under plugins/), or all"
+        default: all
+      tag:
+        description: "Which cases to run"
+        type: choice
+        options: [smoke, full]
+        default: smoke
+      runs:
+        description: "Runs per case (each runs twice: with and without the plugin)"
+        default: "1"
+  schedule:
+    - cron: "41 7 * * *"
+  pull_request:
+    types: [labeled, synchronize]
+    paths:
+      - "plugins/*/skills/**"
+      - "plugins/*/agents/**"
+      - "plugins/*/evals/**"
+      - "plugins/*/docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-evals
+  cancel-in-progress: false
+
+env:
+  CLAUDE_CODE: "@anthropic-ai/claude-code@2.1.322"
+  MODEL: sonnet
+  # Hard ceiling per plugin per workflow run; the eval stops and reports partial results.
+  MAX_COST_USD: "5"
+  # On a labelled pull request the job fails when any case's score (the mean over its runs,
+  # with the plugin) is below this. Scheduled and manual runs only report.
+  THRESHOLD: "0.8"
+
+jobs:
+  evals:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-evals') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'run-evals'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check for the API key
+        id: key
+        env:
+          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" = "true" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Evals skipped::ANTHROPIC_API_KEY is not available to this run (not configured, or a pull request from a fork), so no evals ran."
+            echo "Evals skipped: ANTHROPIC_API_KEY is not available to this run." >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: "22"
+
+      - name: Install the eval sandbox's dependencies
+        if: steps.key.outputs.present == 'true'
+        # Shell tools in an eval run are confined with bubblewrap; Ubuntu's AppArmor policy
+        # blocks the unprivileged user namespaces it needs unless this is turned off.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Choose plugins and cases
+        if: steps.key.outputs.present == 'true'
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_PLUGIN: ${{ inputs.plugin }}
+          IN_TAG: ${{ inputs.tag }}
+          IN_RUNS: ${{ inputs.runs }}
+        run: |
+          case "$EVENT" in
+            pull_request) tag=smoke; runs=""; threshold="$THRESHOLD" ;;
+            schedule) tag=full; runs=1; threshold=0 ;;
+            *) tag="$IN_TAG"; runs="$IN_RUNS"; threshold=0 ;;
+          esac
+          case "$runs" in ""|[1-9]|[1-4][0-9]|50) ;; *) echo "::error::runs must be 1-50"; exit 1 ;; esac
+          plugins=$(python3 -I - "${IN_PLUGIN:-all}" <<'PY'
+          import json, os, re, sys
+          wanted = sys.argv[1]
+          for p in json.load(open(".claude-plugin/marketplace.json"))["plugins"]:
+              src = os.path.normpath(p.get("source", ""))
+              name = os.path.basename(src)
+              if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name) or src != os.path.join("plugins", name):
+                  continue
+              if wanted not in ("all", name) or not os.path.isdir(os.path.join(src, "evals")):
+                  continue
+              print(name)
+          PY
+          )
+          echo "Plugins: ${plugins:-none}; tag: $tag; runs: ${runs:-per case}; threshold: $threshold"
+          {
+            echo "tag=$tag"
+            echo "runs=$runs"
+            echo "threshold=$threshold"
+            echo "plugins=$(echo $plugins)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run evals
+        if: steps.key.outputs.present == 'true' && steps.plan.outputs.plugins != ''
+        id: run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PLUGINS: ${{ steps.plan.outputs.plugins }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          RUNS: ${{ steps.plan.outputs.runs }}
+          RUN_THRESHOLD: ${{ steps.plan.outputs.threshold }}
+          OUT: ${{ runner.temp }}/eval-results
+          # The eval sandbox makes all of /tmp read-only; keep its working directories elsewhere.
+          TMPDIR: ${{ runner.temp }}/eval-tmp
+        run: |
+          mkdir -p "$OUT" "$TMPDIR"
+          failed=""
+          for name in $PLUGINS; do
+            mkdir -p "$OUT/$name"
+            status=0
+            # --trust-plugin and --scaffold: these are this repository's own plugins and
+            # suites; each scaffold script only builds its fixture. Every case still lists
+            # the tools it may use; --allow-tools is the operator's grant on top.
+            npx -y "$CLAUDE_CODE" plugin eval "plugins/$name" \
+              --trust-plugin --scaffold --no-publish \
+              --tag "$TAG" ${RUNS:+--runs "$RUNS"} --model "$MODEL" \
+              --allow-tools Bash Write Edit Agent \
+              --max-cost-usd "$MAX_COST_USD" --threshold "$RUN_THRESHOLD" \
+              --output-dir "$OUT/$name" --report "$OUT/$name/report.html" \
+              --json "$OUT/$name/results.json" || status=$?
+            echo "$name exit $status"
+            [ "$status" -eq 0 ] || failed="$failed $name(exit $status)"
+          done
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: Summarise
+        if: always() && steps.run.outcome != 'skipped' && steps.key.outputs.present == 'true'
+        env:
+          OUT: ${{ runner.temp }}/eval-results
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          python3 -I - >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import glob, json, os
+          out, tag = os.environ["OUT"], os.environ["TAG"]
+          print(f"## Plugin evals ({tag})\n")
+          total = 0.0
+          for path in sorted(glob.glob(os.path.join(out, "*", "results.json"))):
+              name = os.path.basename(os.path.dirname(path))
+              try:
+                  d = json.load(open(path))
+              except (OSError, ValueError) as e:
+                  print(f"### {name}\n\nNo results ({type(e).__name__}).\n")
+                  continue
+              total += d.get("costUsd") or 0
+              agg = d.get("aggregates", {})
+              print(f"### {name}\n")
+              print(f"Score {agg.get('overallScore', 0):.2f}, cases passed {agg.get('casesPassed', 0)}/{agg.get('casesTotal', 0)}, "
+                    f"mean delta over the no-plugin baseline {agg.get('meanDelta', 0):+.2f}, cost ${d.get('costUsd', 0):.2f}"
+                    + (" (partial: stopped early)" if d.get("partial") else "") + "\n")
+              print("| Case | Score | Without plugin | Delta | Cost |")
+              print("|---|---|---|---|---|")
+              for c in d.get("cases", []):
+                  a = c.get("aggregates", {})
+                  cost = sum(r.get("costUsd", 0) for runs in c.get("arms", {}).values() for r in runs)
+                  def num(v):
+                      return "-" if v is None else f"{v:.2f}"
+                  print(f"| {c['name']} | {num(a.get('score'))} | {num(a.get('scoreWithout'))} | {num(a.get('delta'))} | ${cost:.2f} |")
+              print()
+          print(f"Total cost: ${total:.2f}")
+          PY
+
+      - name: Upload results
+        if: always() && steps.run.outcome != 'skipped' && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: ${{ runner.temp }}/eval-results
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Fail on a labelled pull request below the threshold
+        if: steps.run.outputs.failed != ''
+        env:
+          EVENT: ${{ github.event_name }}
+          FAILED: ${{ steps.run.outputs.failed }}
+        run: |
+          # Exit 1: a case scored below the threshold; 2: the cost ceiling stopped the run.
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "::error::Evals did not pass:$FAILED"
+            exit 1
+          fi
+          echo "::warning::Evals did not complete cleanly:$FAILED (report only for $EVENT runs)"
