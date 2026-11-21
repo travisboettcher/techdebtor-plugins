@@ -234,6 +234,30 @@ def test_not_applicable_fails_when_approval_required(tmp_path, capsys):
     assert "skipped-plan-approval" in out and "human" in out
 
 
+def test_a_delegated_record_always_requires_approval(tmp_path, capsys):
+    # A run the dispatcher started always needed the human's approval, with or without the flag.
+    code, out = _check(capsys, _record(tmp_path, DONE + "delegated: true\n"))
+    assert code == 3
+    assert "skipped-plan-approval" in out and "delegated" in out
+
+
+@pytest.mark.parametrize("extra, code", [("delegated: true\n", 0), ("delegated: false\n", 0), ("", 0)])
+def test_a_delegated_record_with_an_approval_time_passes(tmp_path, capsys, extra, code):
+    assert _check(capsys, _record(tmp_path, APPROVED + extra))[0] == code
+
+
+def test_not_applicable_passes_when_not_delegated(tmp_path, capsys):
+    assert _check(capsys, _record(tmp_path, DONE + "delegated: false\n"))[0] == 0
+
+
+@pytest.mark.parametrize("value", ["yes", '"true"', "1"])
+def test_a_delegated_value_that_is_not_a_boolean_cannot_be_checked(tmp_path, capsys, value):
+    code, out = _check(capsys, _record(tmp_path, APPROVED + f"delegated: {value}\n"))
+    assert code == 2 and "delegated" in out
+    # ... and never loosens the gate: it still requires the approval.
+    assert _check(capsys, _record(tmp_path, DONE + f"delegated: {value}\n"))[0] == 3
+
+
 @pytest.mark.parametrize("value", [
     '"2026-11-21T14:05:00+00:00"', "2026-11-21T14:05:00Z", "'2026-11-21T09:05:00-05:00'"])
 def test_approval_time_passes_when_required(tmp_path, capsys, value):

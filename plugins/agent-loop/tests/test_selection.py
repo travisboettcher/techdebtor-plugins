@@ -308,6 +308,7 @@ def test_a_miss_is_a_finding_in_a_chosen_specialists_category_that_it_did_not_re
     (_f("regex-performance", "perf-tester", round=2), 1, 0),              # a later round: it escaped round 1
     (_f("regex-performance", caught_by="hook"), 1, 0),
     (_f("regex-performance", caught_by="ci"), 1, 0),
+    (_f("regex-performance", caught_by="dispatcher"), 1, 0),            # got past the lead's whole run
     (_f("regex-performance", caught_by="lead"), 0, 1),
 ])
 def test_a_miss_escaped_the_swarm_and_same_run_overlap_is_separate(finding, miss, overlap):

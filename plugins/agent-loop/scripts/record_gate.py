@@ -16,10 +16,14 @@ override the record's ``base`` and ``trunk``.
   ``review`` after the last ``implement`` or ``test-write``.
 - ``skipped-plan-approval``: ``plan_approved`` is the time the human approved
   the plan (ISO 8601 with a UTC offset), or ``n/a`` when no approval was
-  required; ``--require-plan-approval`` refuses ``n/a``. With a base, the run's
+  required; ``--require-plan-approval``, or ``delegated: true`` in the record (a run
+  ``/agent-loop:dispatch`` started), refuses ``n/a``. With a base, the run's
   own commits (``<base>..HEAD``, not merges, not reachable from the trunk) must
   not be authored before it. Author dates are advisory: a rebase with
   ``--reset-author`` or ``--ignore-date`` rewrites them.
+
+``delegated`` must be ``true`` or ``false`` when present; any other value
+cannot be checked and still requires the approval.
 
 Records whose ``outcome`` is ``in-progress`` or ``abandoned`` are not done
 reports and are not gated.
@@ -47,8 +51,8 @@ from retro_mine import YamlLiteError, parse_yaml_lite  # noqa: E402
 CHANGE_STAGES = ("implement", "test-write")
 NOT_DONE = ("in-progress", "abandoned")
 RUNS_EXCLUDE = ":(top,exclude).claude/runs"
-HUMAN_APPROVAL = ("the human's approval of the plan (in a delegated run, the human's answer relayed by the "
-                  "delegator; an agent's approval never counts)")
+HUMAN_APPROVAL = ("the human's approval of the plan (in a delegated run, the human's own answer relayed by the "
+                  "dispatcher and marked as theirs; an agent's approval never counts)")
 
 
 class CannotCheck(Exception):
@@ -184,7 +188,7 @@ def approval_time(value) -> datetime | None:
 
 
 def approval_failures(rec: dict, required: bool, repo: str | None, base: str | None,
-                      trunk: str | None = None) -> list[str]:
+                      trunk: str | None = None, delegated: bool = False) -> list[str]:
     """Record-level approval failures, then (with a base) commits authored before the approval.
     Raises CannotCheck when the commits cannot be read."""
     if "plan_approved" not in rec:
@@ -197,7 +201,8 @@ def approval_failures(rec: dict, required: bool, repo: str | None, base: str | N
                 "ISO 8601 date-time with a UTC offset (`date -Iseconds`)."]
     if when is None:
         if required:
-            return ["skipped-plan-approval: approval was required but `plan_approved` is `n/a`; "
+            why = "the run is delegated, so approval" if delegated else "approval"
+            return [f"skipped-plan-approval: {why} was required but `plan_approved` is `n/a`; "
                     f"implementation needs {HUMAN_APPROVAL}."]
         return []
     if base is None:
@@ -228,6 +233,13 @@ def check(args) -> int:
     trunk = args.trunk or (str(rec["trunk"]) if rec.get("trunk") is not None else None)
     review, approval, cannot = [], [], []
 
+    # A malformed `delegated` cannot be checked, and is treated as delegated so it never loosens the gate.
+    delegated = rec.get("delegated", False)
+    if not isinstance(delegated, bool):
+        cannot.append(f"`delegated: {delegated}` must be true or false.")
+        delegated = True
+    required = args.require_plan_approval or delegated
+
     if rec.get("reviewed_diff") is not None:
         if base is None:
             cannot.append("`reviewed_diff` needs `base` (in the record or --base) to recompute.")
@@ -242,7 +254,7 @@ def check(args) -> int:
         review = review_failures(rec)
 
     try:
-        approval = approval_failures(rec, args.require_plan_approval, repo, base, trunk)
+        approval = approval_failures(rec, required, repo, base, trunk, delegated)
     except CannotCheck as e:
         cannot.append(str(e))
 
