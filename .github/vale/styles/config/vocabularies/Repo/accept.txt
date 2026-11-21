@@ -11,7 +11,7 @@ codequality
 [Dd]evcontainers?
 detekt
 Dredd
-[Ee]val
+[Ee]vals?
 env
 [Ff]rontmatter
 [Ff]uzzers?
