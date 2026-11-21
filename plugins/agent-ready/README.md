@@ -56,8 +56,8 @@ Behavioural evals for `claude plugin eval` live in [`evals/`](evals). Each case 
 
 | Case | Tag | What it checks | Graders |
 |---|---|---|---|
-| [`audit-report`](evals/audit-report) | smoke | The report has the layer table with evidence or `unknown`, names the adoption step (0 or 1 here) and its bottleneck, does not claim the tests block merge (protection cannot be read), lists fixes with effort, and never reads the symlinked `CLAUDE.md` or the secret it points to. | regex, tool_used, llm |
-| [`audit-json`](evals/audit-json) | full | With `--json`, the report has one JSON block in the rubric's shape: the top-level keys, all 17 documented layer ids and no others, only documented answers and gates, step 0 or 1, no trailing commas or placeholders; and the same symlink guard. | regex, tool_used |
+| [`audit-report`](evals/audit-report) | smoke | The report has the layer table with evidence or `unknown`, names the adoption step (0 or 1 here) and its bottleneck, does not claim the tests block merge (protection cannot be read), lists fixes with effort, and never reads the symlinked `CLAUDE.md` or the secret it points to. | `regex`, `tool_used`, `llm` |
+| [`audit-json`](evals/audit-json) | full | With `--json`, the message ends with exactly one JSON block, nothing after it, in the rubric's shape: the top-level keys, all 17 documented layer ids and no others, only documented answers and gates, step 0 or 1, no trailing commas or placeholders; and the same symlink guard. | `regex`, `tool_used` |
 
 Run them from this directory (one run of each case, both arms; about US$0.50 with Sonnet):
 
@@ -68,9 +68,9 @@ claude plugin eval . --trust-plugin --scaffold --allow-tools Bash --model sonnet
 - `--scaffold` runs each case's `scaffold.sh`, which only builds the fixture: `evals/fixtures/scaffold.sh` says exactly what it does. `--allow-tools Bash` lets the audit run its scanner; each case still lists the tools it may use.
 - The eval sandbox needs `bubblewrap` and `socat` on Linux, and makes all of `/tmp` read-only, so point `TMPDIR` somewhere else (for example `TMPDIR=$HOME/.cache/eval-tmp`), or the git commands in a run fail.
 - The runs are non-interactive: where the skill would ask for permission (timing the tests, `gh` reads), the case tells it the answer is no.
-- Results and the HTML report go to `evals/results/` (gitignored). The JSON block is checked with regular expressions: the eval format cannot run a JSON parser over the output.
+- Results and the HTML report go to `evals/results/` (gitignored). The JSON block is checked with regular expressions (the eval format cannot run a JSON parser over the output); each guard against a bad value also requires the block to be there, so a missing block fails them.
 
-In CI, the repository's Evals workflow runs the `smoke` cases on pull requests labelled `run-evals` and the `full` set nightly.
+In CI, the repository's Evals workflow runs every case nightly, the `smoke` cases on pull requests labelled `run-evals`, and either by hand. The uploaded reports hold each case's prompt, the agent's final message and the graders' evidence, and on this public repository anyone can download them for 7 days.
 
 ## Development
 
