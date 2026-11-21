@@ -1,0 +1,12 @@
+Repository root: the current directory.
+Diff: `git diff HEAD` plus the untracked files listed below (the change is uncommitted; HEAD is the base).
+Changed files: .github/workflows/ci.yml (modified); textutil/query.py and tests/test_query.py (new, untracked).
+Acceptance criteria:
+- When parse_query is given "a=1&b=2", it shall return {"a": "1", "b": "2"} (tests/test_query.py::ParseQueryTest::test_pairs).
+- When a pair has no "=", parse_query shall raise ValueError (tests/test_query.py::ParseQueryTest::test_missing_equals).
+Units and tags: one unit, "parse query strings", tags [untrusted-input].
+Default selection table: @PLUGIN_ROOT@/docs/selection.yml
+Project override: .claude/agent-loop/selection.yml
+Shared rules: @PLUGIN_ROOT@/docs/specialists/review-rules.md
+Round: 1
+Rules brief: none.

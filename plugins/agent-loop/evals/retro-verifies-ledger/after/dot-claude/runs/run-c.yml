@@ -1,0 +1,32 @@
+schema: 1
+date: @DAYS_AGO_5@
+task: "Split the slug module into words and joining"
+repo: textutil
+outcome: completed
+rounds: 1
+stages: [preflight, plan, test-write, implement, test, review, gate]
+plan_approved: n/a
+findings:
+  - stage: plan
+    category: branch-over-budget
+    severity: minor
+    detail: "The plan put the move and the new helper in one unit of about 500 lines."
+    caught_by: lead
+    round: 1
+    fixed: true
+  - stage: plan
+    category: stale-trunk
+    severity: minor
+    detail: "A branch was started from the local main; the hook refused it."
+    caught_by: hook
+    round: 1
+    fixed: true
+  - stage: implement
+    category: shell-portability
+    severity: minor
+    detail: "A multi-step test command was run without bash -c and ran the whole suite."
+    caught_by: tester
+    specialist: measurement-auditor
+    round: 1
+    fixed: true
+notes: ""

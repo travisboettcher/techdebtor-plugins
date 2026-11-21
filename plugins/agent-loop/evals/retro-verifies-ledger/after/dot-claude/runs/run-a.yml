@@ -1,0 +1,25 @@
+schema: 1
+date: @DAYS_AGO_20@
+task: "Add a separator option to slugify"
+repo: textutil
+outcome: completed
+rounds: 2
+stages: [preflight, plan, test-write, implement, test, review, implement, test, review, gate]
+plan_approved: n/a
+findings:
+  - stage: implement
+    category: doc-drift
+    severity: major
+    detail: "The README still showed hyphens as the only separator after the option was added."
+    caught_by: reviewer
+    specialist: docs-reviewer
+    round: 1
+    fixed: true
+  - stage: implement
+    category: generated-file-hand-edit
+    severity: minor
+    detail: "The implementer tried to edit the generated character table; the hook refused it."
+    caught_by: hook
+    round: 1
+    fixed: true
+notes: ""
