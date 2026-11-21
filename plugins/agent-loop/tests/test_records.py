@@ -133,6 +133,21 @@ def test_run_record_strings_are_redacted(tmp_path):
     assert "192.168.1.5" not in json.dumps(recs)
 
 
+def test_every_caught_by_value_is_kept_and_counted(tmp_path):
+    # The miner does not enumerate caught_by; every value in the contract,
+    # including the downstream ones (implementer, lead), must pass through.
+    values = ["tester", "reviewer", "implementer", "lead", "human", "ci", "hook", "self"]
+    findings = "".join(
+        f"  - stage: plan\n    category: contract-gap\n    severity: minor\n"
+        f"    detail: \"x\"\n    caught_by: {v}\n    fixed: true\n" for v in values)
+    _write(tmp_path, "2026-11-21-c.yml", f"schema: 1\ndate: 2026-11-21\nfindings:\n{findings}")
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    assert [f["caught_by"] for f in recs[0]["findings"]] == values
+    since = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    assert category_counts(recs, since)["contract-gap"]["count"] == len(values)
+
+
 def _records():
     mk = lambda date, *cats: {"date": date, "findings": [
         {"category": c, "severity": s} for c, s in cats]}
