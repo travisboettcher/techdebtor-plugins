@@ -39,7 +39,7 @@ def test_the_levels_are_the_designs():
 
 def test_records_without_levels_give_an_empty_report():
     rep = level_report([_rec([_f("logic-error")]), {"date": "2026-11-01"}])
-    assert rep == {"levels": list(LEVELS), "planned": {}, "by_level": {}, "invalid": 0}
+    assert rep == {"levels": list(LEVELS), "planned": {}, "plans_by_reference": 0, "by_level": {}, "invalid": 0}
 
 
 def test_escapes_are_counted_per_level_with_their_categories():
@@ -126,3 +126,17 @@ findings:
 def test_the_retro_proposes_tests_at_the_level_where_escapes_repeat():
     text = (PLUGIN / "skills/retro/SKILL.md").read_text()
     assert "`test_levels`" in text and "should_have_caught_at" in text and "runs_escaped" in text
+
+
+def test_plans_given_by_path_are_counted_not_read():
+    recs = [{"date": "2026-11-20", "plan": ".claude/runs/x.plan.md",
+             "findings": [_f("missing-contract-test", "contract")]},
+            _rec(test_plan=[{"criterion": "a", "level": "unit"}])]
+    rep = level_report(recs)
+    assert rep["plans_by_reference"] == 1 and rep["planned"] == {"unit": 1}
+    assert rep["by_level"]["contract"]["runs_escaped"] == 1
+
+
+def test_the_retro_does_not_blame_plans_it_could_not_read():
+    text = (PLUGIN / "skills/retro/SKILL.md").read_text()
+    assert "plans_by_reference" in text

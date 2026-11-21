@@ -28,7 +28,7 @@ specialists:                  # pool: tester (verification) | reviewer (review);
     pool: tester
     weight: light
     categories: [wrong-test-level, missing-test-level, missing-contract-test, inverted-pyramid]
-  contract-tester:            # light; a check that starts a service still takes the heavy-job lock
+  contract-tester:            # light; starts after the test runner; suites and services go through the heavy-job lock
     pool: tester
     weight: light
     categories: [missing-contract-test, interface-mismatch, breaking-change]
@@ -81,7 +81,7 @@ specialists:                  # pool: tester (verification) | reviewer (review);
   api-reviewer:
     pool: reviewer
     weight: light
-    categories: [breaking-change, interface-mismatch]
+    categories: [breaking-change, interface-mismatch, missing-contract-test]
   docs-reviewer:
     pool: reviewer
     weight: light
@@ -128,8 +128,8 @@ tags:                         # when: what the lead tags; files: what the change
     run: [measurement-auditor, test-strategist]
     floor: [measurement-auditor]
   test-changes:
-    when: "Modifies, moves or deletes existing tests, not only adds new ones."
-    files: "Existing test files modified or deleted."
+    when: "Removes or changes lines of existing tests, or deletes a test file; tests that are only added, even to an existing file, do not count."
+    files: "`git diff --numstat <base>` shows deleted lines in an existing test file, or a test file deleted; not files with added lines only."
     run: [test-strategist]
   regex:
     when: "Adds or changes a regular expression or another backtracking matcher."
@@ -142,4 +142,4 @@ tags:                         # when: what the lead tags; files: what the change
     run: [security-scanner]
   user-facing:
     when: "Changes behaviour something else describes: options, defaults, output, errors, documented steps."
-    run: [docs-reviewer, system-tester, test-strategist]
+    run: [docs-reviewer, system-tester]

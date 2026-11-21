@@ -14,9 +14,14 @@ Read by the level-aware verification specialists of `agent-loop` when their brie
 
 ## Classify
 
+The test runner classifies, since it runs commands. Every other specialist uses the test runner's per-level report, and never runs a command to classify; where it must place one test the report does not name, it reads that test's code by the rules below.
+
 Classify each test in this order, and say which way you used:
 
-1. **Real dependencies**, where the stack shows them: what the test's setup pulls in. In pytest, its fixture closure (`pytest --fixtures-per-test` or `pytest --setup-plan` on the selected tests; both list fixtures without running test bodies). Elsewhere, its setup and imports: a container or server start, a database or HTTP client, a subprocess of the app. Leave out autouse fixtures, which every test has. The most real dependency decides: a test that opens a database is `integration`, whatever its marker says.
+1. **Real dependencies**, where the stack shows them:
+   - The test's setup. In pytest, its fixture closure: `pytest --fixtures-per-test` or `pytest --setup-plan` on the selected tests list the fixtures without running test bodies, but both import the test code and conftest files, so treat them like running the suite. Neither marks which fixtures are autouse: find those with a grep for `autouse=True` in conftest and fixture files, and leave them out, since every test has them. Elsewhere, its setup and imports: a container or server start, a database or HTTP client, a subprocess of the app.
+   - The test's body. Grep it for resources it opens itself: database clients or connections, sockets, HTTP clients, `subprocess` calls, network addresses.
+   - The most real dependency decides: a test that opens a database is `integration`, whatever its marker says. A process-local temporary directory (`tmp_path`, `tmpdir`, `tempfile`, and their equivalents) is not a real collaborator: such a test stays `unit` or `component`.
 2. **The project's own convention**, only where real dependencies cannot be seen: directories (`tests/unit/`, `tests/e2e/`), naming, markers, separate CI jobs. Say that the level comes from convention.
 3. Otherwise **`unclassified`**. Report it as such; never guess.
 
@@ -24,7 +29,7 @@ A contract test is recognised by what it checks (one side against the other's ex
 
 ## Report by level
 
-Report one check per level that has tests, in the shared report's Checks list, with the numbers in its evidence line even when it passes:
+The test runner reports one check per level that has tests, in the shared report's Checks list, with the numbers in its evidence line even when it passes:
 
 ```
 - `<command for the level, or "classified from the full run">` (level <unit | component | contract | integration | system | unclassified>, by <real dependencies | convention>): PASS | FAIL | ...

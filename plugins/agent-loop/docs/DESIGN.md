@@ -309,7 +309,7 @@ At least one check in every run works from the criteria and not from the impleme
 
 ### Risk tags and the baseline
 
-While planning, the lead tags each unit with the risk tags that apply (`plan.tags` in the run record). Every run gets the **baseline**, `test-runner` and `correctness-reviewer`, whatever the tags. Some tags also have a `files` signal in the table: what the changed files show when the tag applies (`test-infra`: test infrastructure such as fixtures, conftest or setup files, runner, coverage or test config and CI test jobs, not ordinary new test files; `permissions`; `dependencies`; `regex`; `untrusted-input`: parsers, input handling, deserialisation; `security-sensitive`: auth, crypto, subprocess or shell calls, SQL built from strings, file paths; `public-api`: API specs and schemas, contract test files or broker configuration; `test-changes`: existing test files modified or deleted). A coordinator adds any such tag the lead missed and says which. `check-runner` runs whenever the plan chose verify skills. Every tag that calls for a test level above component ("Test levels", below) also selects `test-strategist`, as do `test-infra` and `test-changes`. The correctness reviewer also sweeps for obvious security holes and, finding one, asks its coordinator to add the security reviewer.
+While planning, the lead tags each unit with the risk tags that apply (`plan.tags` in the run record). Every run gets the **baseline**, `test-runner` and `correctness-reviewer`, whatever the tags. Some tags also have a `files` signal in the table: what the changed files show when the tag applies (`test-infra`: test infrastructure such as fixtures, conftest or setup files, runner, coverage or test config and CI test jobs, not ordinary new test files; `permissions`; `dependencies`; `regex`; `untrusted-input`: parsers, input handling, deserialisation; `security-sensitive`: auth, crypto, subprocess or shell calls, SQL built from strings, file paths; `public-api`: API specs and schemas, contract test files or broker configuration; `test-changes`: deleted lines in an existing test file, or a deleted test file, from `git diff --numstat <base>`; tests only added never count). A coordinator adds any such tag the lead missed and says which. `check-runner` runs whenever the plan chose verify skills. Every tag that calls for a test level above component ("Test levels", below) except `user-facing` also selects `test-strategist`, as do `test-infra` and `test-changes`. The correctness reviewer also sweeps for obvious security holes and, finding one, asks its coordinator to add the security reviewer.
 
 ### The selection table
 
@@ -327,10 +327,10 @@ The default table, `docs/selection.yml` (`${CLAUDE_PLUGIN_ROOT}/docs/selection.y
 | `perf-sensitive` | Hot paths, loops over unbounded data, queries, caching, or a stated latency or size limit. | `perf-tester` |  |
 | `ui` | What a user sees or does in a browser or app. | `system-tester`, `test-strategist` |  |
 | `test-infra` | Test infrastructure: fixtures, conftest or setup files, runners, coverage or test config, CI test jobs. Not ordinary new test files. | `measurement-auditor`, `test-strategist` | `measurement-auditor` |
-| `test-changes` | Modifies, moves or deletes existing tests, not only adds new ones. | `test-strategist` |  |
+| `test-changes` | Removes or changes lines of existing tests, or deletes a test file; tests that are only added, even to an existing file, do not count. | `test-strategist` |  |
 | `regex` | Adds or changes a regular expression or another backtracking matcher. | `fuzzer` | `fuzzer` |
 | `dependencies` | Adds, removes or upgrades a dependency or lockfile. | `security-scanner` |  |
-| `user-facing` | Changes behaviour something else describes: options, defaults, output, errors, documented steps. | `docs-reviewer`, `system-tester`, `test-strategist` |  |
+| `user-facing` | Changes behaviour something else describes: options, defaults, output, errors, documented steps. | `docs-reviewer`, `system-tester` |  |
 
 Every tunable default lives in that file: the `budget` and its ceiling `budget_max`, the retro's thresholds (`retro`: `drop_after_runs`, `add_after_escapes`), and each tag's specialists.
 
@@ -360,7 +360,7 @@ It may add specialists to a tag, drop ones above the floor, enable opt-in ones, 
 
 - **Fast path.** When no unit has a tag (from the plan, or the changed files' `files` signals) and the override enables nothing, the lead skips both coordinators and briefs `agent-loop:test-runner` and then `agent-loop:correctness-reviewer` itself, as their coordinators would. The record still lists both pools in `selection`, with the baseline chosen.
 - The coordinator states the effective tags, the specialists it chose and why (the baseline, which tag, verify skills), and those it did not run and why (`opt-in`, `budget`).
-- Light specialists start together, in parallel, except `test-strategist`, which starts once the test runner's report (with its per-level counts and times) is in. A light specialist's job that has to start a service (the contract tester's provider or broker) still goes through the heavy-job lock. Heavy ones (anything that runs a full suite, mutation testing, fuzzing, integration, system or performance runs) run one at a time, never two at once, and never while another heavy job of the run is going; in a delegated run, never while another lead's is either (the heavy-job lock, "Delegated runs").
+- Light specialists start together, in parallel, except `contract-tester` and `test-strategist`, which start once the test runner's report (with its per-level counts and times) is in, so neither runs alongside the full suite. The contract tester's consumer and provider suites, and any service it starts, go through the heavy-job lock. Heavy ones (anything that runs a full suite, mutation testing, fuzzing, integration, system or performance runs) run one at a time, never two at once, and never while another heavy job of the run is going; in a delegated run, never while another lead's is either (the heavy-job lock, "Delegated runs").
 - **Budget**, per lead run, for heavy specialists beyond the baseline: `heavy_runs` runs and `heavy_minutes` minutes of their wall time across all rounds. The effective budget is the override's (clamped to `budget_max`) or else the default; the task text may lower it, or raise it up to `budget_max`. The lead passes what remains to the tester coordinator, which never starts a heavy specialist when the remaining runs or minutes are 0 or less, and gives each one the remaining minutes as its time limit (the baseline's `test-runner` has none). One not started is listed as not run, reason `budget`; the lead asks the human whether to raise the budget rather than dropping it silently. The record's `selection` shows the budget and what was used.
 - Specialists report to the coordinator, never to the lead. The coordinator merges findings that are the same defect (same location and cause), keeping the highest severity and every specialist that reported it, and returns one report.
 - In a later round the coordinator runs its selection again on the whole change; the budget still covers the whole run.
@@ -389,7 +389,7 @@ The verification pool reasons about the level each test works at, not only about
 | `integration` | A real collaborator across a boundary: a database, queue, cache, filesystem or network service. | The code works with the real thing, not a fake of it. | Fewer and slower; isolated per test (a rolled-back transaction, a fresh database). |
 | `system` | The deployed whole, through a real user path: HTTP, a CLI run as a process, a browser. | The parts work together for a user. | Fewest; slowest and most brittle. |
 
-**Classifying a test.** By its real dependencies: what its setup pulls in (in pytest, its fixture closure, from `--fixtures-per-test` or `--setup-plan`; elsewhere its setup, imports and container or server starts), leaving out autouse fixtures, which every test has. A test that opens a database is an integration test whatever its marker says. Only where the stack does not show real dependencies, use the project's own convention (directories, naming, markers, separate CI jobs), and say so. Otherwise the test is `unclassified`, reported as such and never guessed. A contract test is recognised by what it checks (one side against the other's expectations or a schema), or by the project's contract tooling (consumer-driven contract files, a schema compatibility step).
+**Classifying a test.** The test runner classifies, since it runs commands; the other specialists use its per-level report (`docs/specialists/test-levels.md` has the procedure). By real dependencies: what the test's setup pulls in (in pytest, its fixture closure from `--fixtures-per-test` or `--setup-plan`, which import the test code like a run does; elsewhere its setup, imports and container or server starts) and the resources its body opens itself, leaving out autouse fixtures, which every test has. A process-local temporary directory is not a real collaborator. A test that opens a database is an integration test whatever its marker says. Only where the stack does not show real dependencies, use the project's own convention (directories, naming, markers, separate CI jobs), and say so. Otherwise the test is `unclassified`, reported as such and never guessed. A contract test is recognised by what it checks (one side against the other's expectations or a schema), or by the project's contract tooling (consumer-driven contract files, a schema compatibility step).
 
 **How the levels relate.**
 - Unit and component tests are the base. Most behaviour is logic, proved fastest and most precisely there; keep logic in pure code so it can be.
@@ -398,17 +398,18 @@ The verification pool reasons about the level each test works at, not only about
 - System tests for the few real user paths that matter, never for logic or edge cases.
 - Coverage from integration tests overstates how well code is tested: mutation testing does not reach it, and the two blind spots overlap on the riskiest code. The measurement auditor reports unit and integration coverage apart ("Measurement invariants").
 
-**Anti-patterns**, each a finding in its category:
+**Anti-patterns.** The suite's shape is a property of the whole suite, built up over many changes, so a shape finding is always report-only and never blocks: the strategist reports the shape at `<base>` and now, and flags what the change makes worse. Many unit tests and a few system tests with nothing between them is not an anti-pattern by itself.
 
-| Anti-pattern | What it looks like | Category |
-|---|---|---|
-| Ice-cream cone | Mostly system or end-to-end tests, few below them. | `inverted-pyramid` |
-| Hourglass | Unit and system tests with nothing in between. | `inverted-pyramid` |
-| Logic tested high | A rule, calculation or edge case proved only by an integration or system test, such as logic among changed lines that only integration tests cover. | `wrong-test-level` |
-| Interface without a contract | An interface between components changes and no contract test covers it. | `missing-contract-test` |
-| Missing level | A level the change's risk tags call for (below) has no test. | `missing-test-level` |
+| Anti-pattern | What it looks like | Category | Blocks |
+|---|---|---|---|
+| Ice-cream cone | Mostly system or end-to-end tests, few below them. | `inverted-pyramid` | never (report-only) |
+| Hourglass | Boundaries between components, or real collaborators, that only system tests cover. | `missing-contract-test` or `missing-test-level` | as those rows say |
+| Logic tested high | A rule, calculation or edge case proved only by an integration or system test, such as logic among changed lines that only integration tests cover, or a system test the change adds for logic a unit test could prove. | `wrong-test-level` | yes |
+| Interface without a contract | An interface the change touches between components, with no contract test covering it. | `missing-contract-test` | yes; report-only for an interface the change does not touch |
+| Missing level | A criterion whose planned target level has no test. | `missing-test-level` | yes |
+| Suggested level | A level the change's risk tags call for (below) that no criterion planned and no test covers, and whose specialist the project runs. | `missing-test-level` | never (report-only) |
 
-**Levels, risk tags and specialists.** Unit and component tests come with every unit that has testable behaviour; the risk tags call for the levels above them, and the selection table maps each to its specialist:
+**Levels, risk tags and specialists.** Unit and component tests come with every unit that has testable behaviour; the risk tags call for the levels above them, and the selection table maps each to its specialist. The lowest-level rule wins over a tag: text, defaults and options a user sees are proved at unit or component level, so `user-facing` adds a system test only where the project runs the system tester.
 
 | Level | Called for by | Specialist |
 |---|---|---|
@@ -417,9 +418,9 @@ The verification pool reasons about the level each test works at, not only about
 | `integration` | `io-boundary`, `data-migration`, `concurrency` | `integration-tester` (heavy, opt-in) |
 | `system` | `ui`, `user-facing`, `data-migration`, `concurrency` | `system-tester` (heavy, opt-in) |
 
-`test-strategist` checks the whole, read-only: each criterion's test against its target level, the levels the tags call for, and the pyramid's shape as the count and run time per level from the test runner's report. It runs for every tag in the table above, and for `test-infra` and `test-changes`. A specialist whose tooling is missing (no compatibility tool for a changed schema, no service to integrate with) reports the check BLOCKED, naming what is missing.
+`test-strategist` checks the whole, read-only and running nothing: each criterion's test against its target level, the levels the tags call for, and the pyramid's shape, from the test runner's per-level report. It runs for every tag in the table above except `user-facing`, and for `test-infra` and `test-changes`. It suggests a missing integration or system level only when the project enabled that level's opt-in specialist. A specialist whose tooling is missing (no compatibility tool for a changed schema, no service to integrate with) reports the check BLOCKED, naming what is missing.
 
-**In the plan and the records.** Each criterion in the test plan has a target level (`plan.test_plan`, "Run record"), the lowest that can prove it; the test-writer writes its test at that level, or reports why it cannot. A finding that escaped the swarm or got past a test carries `should_have_caught_at`, the lowest level whose test would have caught it. The retro's miner counts those escapes per level (`test_levels`), next to the criteria planned at each level; escapes at one level in `retro.add_after_escapes` runs or more become proposals for tests at that level.
+**In the plan and the records.** Each criterion in the test plan has a target level (`plan.test_plan`, "Run record"), the lowest that can prove it; the test-writer writes its test at that level, or reports why it cannot. A finding that escaped the swarm or got past a test carries `should_have_caught_at`, the lowest level whose test would have caught it. The retro's miner counts those escapes per level (`test_levels`), next to the criteria planned at each level; a plan given as a path is never read, only counted (`plans_by_reference`, there and under `specialists`), so its levels and tags are unknown; escapes at one level in `retro.add_after_escapes` runs or more become proposals for tests at that level.
 
 ## Measurement invariants
 

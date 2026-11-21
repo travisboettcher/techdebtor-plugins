@@ -61,7 +61,7 @@ Units run one at a time, in plan order. Never run heavy jobs in parallel (full b
 Brief the `agent-loop:tester` coordinator with:
 
 - the acceptance criteria with their verifiers and target levels;
-- `<base>` and the changed files (`git diff --stat <base>` plus untracked files);
+- `<base>` and the changed files (`git diff --numstat <base>` plus untracked files);
 - each unit's tags and the chosen verify skills' paths;
 - the baseline failures (IDs and signatures) and wall time;
 - the remaining budget (the table's or the task's, never over `budget_max`, less what earlier reports used);
@@ -70,7 +70,7 @@ Brief the `agent-loop:tester` coordinator with:
 
 It returns one merged report saying which specialists it chose and why.
 
-**Fast path.** With no unit tags, no tag's `files` signal in the changed files, and nothing enabled by the override, skip both coordinators: brief `agent-loop:test-runner` as above (no budget or table; shared rules `${CLAUDE_PLUGIN_ROOT}/docs/specialists/verification-rules.md`), then at step 6 `agent-loop:correctness-reviewer` (with `review-rules.md`), and any reviewer it escalates to. Record both pools in `selection`, baseline chosen.
+**Fast path.** With no unit tags, no tag's `files` signal in the changed files, and nothing enabled by the override, skip both coordinators. For `test-changes`, read `git diff --numstat <base>`: only deleted lines in an existing test file, or a deleted test file, count, so a regression test added to an existing file keeps the fast path. On the fast path, brief `agent-loop:test-runner` as above (no budget or table; shared rules `${CLAUDE_PLUGIN_ROOT}/docs/specialists/verification-rules.md`), then at step 6 `agent-loop:correctness-reviewer` (with `review-rules.md`), and any reviewer it escalates to. Record both pools in `selection`, baseline chosen.
 
 ## 6. Review
 

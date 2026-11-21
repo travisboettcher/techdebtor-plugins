@@ -99,12 +99,36 @@ def test_risk_tags_call_for_test_levels():
     assert calls == {"contract": {"public-api"}, "integration": {"io-boundary", "data-migration", "concurrency"},
                      "system": {"ui", "user-facing", "data-migration", "concurrency"}}
     strategist = {tag for tag, row in tags.items() if "test-strategist" in row["run"]}
-    assert strategist == set().union(*calls.values()) | {"test-infra", "test-changes"}
+    # user-facing text and defaults are proved at unit or component level: the strategist is not for it.
+    assert strategist == set().union(*calls.values()) - {"user-facing"} | {"test-infra", "test-changes"}
     assert tags["test-changes"]["files"] and tags["public-api"]["files"]
     for name in ("test-strategist", "contract-tester"):
         assert specs[name]["weight"] == "light" and not specs[name].get("opt_in"), name
     assert specs["integration-tester"]["weight"] == "heavy" and specs["integration-tester"]["opt_in"] is True
     assert "test-strategist" not in t["baseline"]
+
+
+def test_test_changes_fires_on_removed_or_changed_test_lines_not_on_added_tests():
+    # A bug fix that adds a regression test to an existing file stays on the fast path.
+    row = default()["tags"]["test-changes"]
+    for text in (row["when"], row["files"]):
+        assert "not" in text and "add" in text, text
+    assert "--numstat" in row["files"]
+    lead = (PLUGIN / "skills/lead/SKILL.md").read_text()
+    fast = lead.split("**Fast path.**", 1)[1].split("\n## ", 1)[0]
+    assert "`test-changes`" in fast and "--numstat" in fast
+    assert "git diff --numstat <base>" in lead.split("## 5. Test", 1)[1].split("\n## ", 1)[0]
+
+
+def test_shape_findings_are_report_only_and_suggested_levels_never_block():
+    design = (PLUGIN / "docs/DESIGN.md").read_text().split("## Test levels", 1)[1].split("\n## ", 1)[0]
+    assert "report-only" in design and "never blocks" in design and "planned target level" in design
+    strategist = (PLUGIN / "agents/test-strategist.md").read_text()
+    assert "report_only: true" in strategist and "at `<base>`" in strategist and "enabled" in strategist
+    tester = (PLUGIN / "agents/tester.md").read_text()
+    assert "marks `report_only: true`" in tester
+    rules = (PLUGIN / "docs/specialists/verification-rules.md").read_text()
+    assert "report_only: true" in rules
 
 
 def test_design_level_table_matches_the_data_file():
@@ -401,6 +425,13 @@ def test_records_without_a_selection_are_skipped_and_odd_shapes_do_not_crash():
     rep = specialist_report(recs, default())
     assert rep["records"] == 2
     assert rep["by_specialist"]["fuzzer"]["runs"] == 2
+
+
+def test_plans_given_by_path_are_counted_for_tags_too():
+    rec = _rec(["regex"], ["fuzzer"])
+    rec["plan"] = ".claude/runs/x.plan.md"
+    rep = specialist_report([rec, _rec(["regex"], ["fuzzer"])], default())
+    assert rep["plans_by_reference"] == 1
 
 
 def test_diff_derived_tags_in_a_selection_entry_count():

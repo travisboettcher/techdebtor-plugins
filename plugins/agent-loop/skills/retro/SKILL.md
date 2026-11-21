@@ -56,7 +56,11 @@ Windows (`window`): the miner reads every run record in every worktree of the pr
 - `by_specialist`, per specialist: `runs` that chose it, `findings`, `rejected`, `precision`, `misses`, `miss_rate`, `overlap`, and those counts `by_tag` for the tags that selected it. `misses` are findings in its own categories, in a run that chose it, that it did not report and that escaped the swarm: caught by the human, CI, a hook or the dispatcher, or in a later round. `overlap` is the same, caught by another specialist in the same round.
 - `by_tag`, per tag: `runs` and the categories that `escaped`.
 
-`test_levels` attributes findings to test levels (`unit`, `component`, `contract`, `integration`, `system`; DESIGN.md "Test levels"), from every run record: `planned`, the criteria planned at each target level; `by_level`, per level, the findings whose `should_have_caught_at` names it, how many `escaped` the swarm, in how many runs (`runs_escaped`), and their `categories`; `invalid`, levels the miner did not recognise.
+`test_levels` attributes findings to test levels (`unit`, `component`, `contract`, `integration`, `system`; DESIGN.md "Test levels"), from every run record:
+- `planned`: the criteria planned at each target level.
+- `plans_by_reference`: the records whose `plan` is a path the miner does not open, so their levels are unknown (`specialists.plans_by_reference` counts them too: their plan tags are unknown).
+- `by_level`, per level: the findings whose `should_have_caught_at` names it, how many `escaped` the swarm, in how many runs (`runs_escaped`), and their `categories`.
+- `invalid`: levels the miner did not recognise.
 
 Signals are heuristics. Discard false positives (a "no" that answered a question, a denial that was only caution) before counting.
 
@@ -99,7 +103,7 @@ Scope:
 - Override `errors` are reported as found, not proposed around.
 The change goes in the project's `.claude/agent-loop/selection.yml` (create it as `schema: 1` if missing; its shape is DESIGN.md's "Specialists"), with a ledger entry `rung: selection`, the `category` it targets, the `specialist` it adds or drops (`change: drop` for a drop), and `location: ".claude/agent-loop/selection.yml"`. A change the plugin's default table needs in every project is framework scope.
 
-**Test levels.** A level where escapes repeat, `test_levels.by_level.<level>.runs_escaped` at least `retro.add_after_escapes`, is a candidate (ranked with the rest): propose tests at that level for the behaviour that escaped (rung `test`, in the project's framework), and, where the same kind of criterion keeps going without them, an instruction for the lead's test plan (for example: every interface a unit touches gets a `contract` criterion). If that level's specialist is opt-in and not enabled, enabling it is a selection change (above). When few criteria were `planned` at that level, say so: the gap starts in the plans.
+**Test levels.** A level where escapes repeat, `test_levels.by_level.<level>.runs_escaped` at least `retro.add_after_escapes`, is a candidate (ranked with the rest): propose tests at that level for the behaviour that escaped (rung `test`, in the project's framework), and, where the same kind of criterion keeps going without them, an instruction for the lead's test plan (for example: every interface a unit touches gets a `contract` criterion). If that level's specialist is opt-in and not enabled, enabling it is a selection change (above). When few criteria were `planned` at that level and `plans_by_reference` is 0, say so: the gap starts in the plans. With plans given by path, say their levels are unknown instead.
 
 Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location` (for a `check`, the skill's `SKILL.md` path; for a `selection`, the override file), `specialist` (a `selection` rule only), `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 

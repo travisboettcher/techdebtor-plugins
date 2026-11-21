@@ -1326,7 +1326,7 @@ def specialist_report(records, table: dict) -> dict:
     specs = table.get("specialists") or {}
     by_spec: dict[str, dict] = {}
     by_tag: dict[str, dict] = {}
-    counted = 0
+    counted = by_reference = 0
     keys = ("runs", "findings", "rejected", "misses", "overlap")
 
     def bump(name, tags, **n):
@@ -1344,6 +1344,8 @@ def specialist_report(records, table: dict) -> dict:
         if not sel:
             continue
         counted += 1
+        if isinstance(rec.get("plan"), str) and rec["plan"]:
+            by_reference += 1  # its tags are only those the selection lists; the plan file is never read
         tags = sorted(_run_tags(rec, sel))
         findings = _findings(rec)
         rejected = rec.get("rejected")
@@ -1368,7 +1370,7 @@ def specialist_report(records, table: dict) -> dict:
         s["precision"] = round(s["findings"] / judged, 2) if judged else None
         seen = s["findings"] + s["misses"]
         s["miss_rate"] = round(s["misses"] / seen, 2) if seen else None
-    return {"records": counted, "by_specialist": dict(sorted(by_spec.items())), "by_tag": dict(sorted(by_tag.items()))}
+    return {"records": counted, "plans_by_reference": by_reference, "by_specialist": dict(sorted(by_spec.items())), "by_tag": dict(sorted(by_tag.items()))}
 
 
 LEVELS = ("unit", "component", "contract", "integration", "system")  # DESIGN.md, "Test levels"
@@ -1376,15 +1378,18 @@ LEVELS = ("unit", "component", "contract", "integration", "system")  # DESIGN.md
 
 def level_report(records) -> dict:
     """Test levels across every run record: ``planned``, the criteria in each plan's
-    ``test_plan`` per target level; ``by_level``, the findings whose ``should_have_caught_at``
+    ``test_plan`` per target level (``plans_by_reference`` counts plans given as a path, which are
+    never read, so their levels are unknown); ``by_level``, the findings whose ``should_have_caught_at``
     names a level, how many escaped the swarm (as ``_escaped`` with round 1 as the first) and in
     how many runs, and their categories. A level that is not one of ``LEVELS`` is counted under
     ``invalid`` and never echoed."""
     planned: dict[str, int] = {}
     by_level: dict[str, dict] = {}
-    invalid = 0
+    invalid = by_reference = 0
     for rec in records:
         plan = rec.get("plan")
+        if isinstance(plan, str) and plan:
+            by_reference += 1  # a path to a plan record: never opened, so its levels are unknown
         entries = plan.get("test_plan") if isinstance(plan, dict) else None
         for e in entries if isinstance(entries, list) else []:
             level = e.get("level") if isinstance(e, dict) else None
@@ -1412,6 +1417,7 @@ def level_report(records) -> dict:
             by_level[level]["runs_escaped"] += 1
     order = {lvl: i for i, lvl in enumerate(LEVELS)}
     return {"levels": list(LEVELS), "planned": dict(sorted(planned.items(), key=lambda kv: order[kv[0]])),
+            "plans_by_reference": by_reference,
             "by_level": dict(sorted(by_level.items(), key=lambda kv: order[kv[0]])), "invalid": invalid}
 
 
