@@ -35,7 +35,7 @@ End with exactly this. Each finding must be copyable into a run record.
 ## Reviewer report
 Scope reviewed: <files / commits>
 Findings:
-- category: <kebab-case kind of mistake, e.g. missing-error-handling>
+- category: <kebab-case kind of mistake, e.g. scope-mismatch>
   severity: minor | major | critical
   location: <path>:<line>
   detail: <what is wrong>

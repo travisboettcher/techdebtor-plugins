@@ -66,7 +66,7 @@ Also confirm the rule still exists at `location`; a missing rule is reported, no
 
 ### 3. Cluster
 
-Group signals and record findings into categories. Reuse a category from the ledger or earlier records whenever one fits; invent a kebab-case one only when nothing does. Count recurrences per category (distinct sessions or records, not repeated messages within one exchange). Assign a severity: `critical` for data loss, secrets, destructive or irreversible actions, anything pushed or deployed wrongly; `major` for rework or a wrong result; `minor` otherwise. A category seen once and not critical stays a note: list it, propose nothing.
+Group signals and record findings into categories. The catalog `${CLAUDE_PLUGIN_ROOT}/docs/categories.md` is the starting vocabulary: reuse a category from it, the ledger or earlier records whenever one fits (its "cheapest known rule" is the first candidate rule for that category); invent a kebab-case one only when nothing does, naming the kind of mistake, not the incident. A new category that recurs and would apply beyond this project may be proposed for the catalog itself, as a framework-scope proposal (step 4). Count recurrences per category (distinct sessions or records, not repeated messages within one exchange). Assign a severity: `critical` for data loss, secrets, destructive or irreversible actions, anything pushed or deployed wrongly; `major` for rework or a wrong result; `minor` otherwise. A category seen once and not critical stays a note: list it, propose nothing.
 
 ### 4. Choose rung and scope
 
@@ -80,7 +80,7 @@ Rung (the ladder):
 Scope:
 - `project`: only makes sense in this repo (its layout, tools, conventions).
 - `user`: the human's preferences or environment across repos (`~/.claude/CLAUDE.md`, `~/.claude/settings.json`, `~/.claude/skills`, memory).
-- `framework`: would help anyone using these plugins (a missing reviewer check, a better lead prompt).
+- `framework`: would help anyone using these plugins (a missing reviewer check, a better lead prompt, a new catalog category with its description, usual stage and cheapest rule).
 
 Each new rule gets a ledger entry: `id` (`<category>-<n>`), `category`, `rung`, `scope`, `location`, `summary`, `added` (today), `baseline` (occurrences of the category in this window before the rule), `history: []`.
 
@@ -113,4 +113,4 @@ Delete the miner output at the end: `rm -f "<OUT>"` with the exact path `mktemp`
 
 ## Recording a session (`--record`)
 
-Write `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` for the current session in the run-record shape from `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md` (`schema: 1`, `date`, `task`, `repo`, `outcome`, `rounds`, `stages`, `findings`, optional `plan`, `baseline_failures`, `rejected`, `notes`). Findings are only things that went wrong and were caught (by a stage, a hook, CI or the human), each with a reused category where one fits. No secrets, private hostnames, personal data or quotes from the conversation; paraphrase. Show the file to the human after writing it. If `.claude/runs/` is not gitignored and the project has not decided, mention that committing or ignoring `.claude/runs/` is the project's choice.
+Write `<repo>/.claude/runs/YYYY-MM-DD-<slug>.yml` for the current session in the run-record shape from `${CLAUDE_PLUGIN_ROOT}/docs/DESIGN.md` (`schema: 1`, `date`, `task`, `repo`, `outcome`, `rounds`, `stages`, `findings`, optional `plan`, `plan_approved`, `baseline_failures`, `rejected`, `notes`). Findings are only things that went wrong and were caught (by a stage, a hook, CI or the human), each with a reused category (from `${CLAUDE_PLUGIN_ROOT}/docs/categories.md`, the ledgers or earlier records) where one fits. No secrets, private hostnames, personal data or quotes from the conversation; paraphrase. Show the file to the human after writing it. If `.claude/runs/` is not gitignored and the project has not decided, mention that committing or ignoring `.claude/runs/` is the project's choice.

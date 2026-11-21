@@ -31,13 +31,13 @@ The model does not learn; the scaffolding around it does. A rule only counts as 
 
 1. **Understand.** Reads `CLAUDE.md` and, if present, `.claude/rules-ledger.yml` and `~/.claude/rules-ledger.yml`. Every applicable rule goes into a rules brief that every agent receives. Acceptance criteria must be testable (EARS form recommended), each naming its test or verifier; with none, it stops and asks.
 2. **Preflight.** A clean tree; when starting on the default branch, a work branch from an up-to-date `origin/<default>`; the build, lint and test commands; a baseline test run, so tests that already fail are never blamed on the change; and the project's generators and stale-artifact checks, with every new file checked against their globs.
-3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval.
+3. **Plan.** The approach and the main alternative rejected, small ordered units within a branch budget (about 300 changed lines each by default, split by behaviour with tests alongside), a test plan from the criteria, risks and what is out of scope. Large or risky tasks wait for your approval, and nothing is implemented or committed before it.
 4. **Build each unit.** The `test-writer` agent writes failing tests from the criteria and interfaces, never the implementation; the `implementer` makes them pass; the lead reruns the tests itself rather than trusting the report. One commit per unit, if you asked for commits. Heavy jobs (full builds, mutation testing) never run in parallel.
 5. **Test.** The `tester` agent runs the project's real verifiers and reports pass/fail with output, separating pre-existing failures. It does not fix code.
 6. **Review.** The `reviewer` agent gets the whole diff, the acceptance criteria and the rules brief, and nothing else: no implementer reasoning, no lead conclusions. It reports only findings it has verified, each with category, severity, file:line and a failure scenario, or "no findings".
 7. **Loop.** Fix, test, review until clean, or 3 rounds, then stop and report.
-8. **Pre-push gate.** Whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
-9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record and the baseline failures.
+8. **Pre-push gate.** The final diff must be the one last reviewed; then whatever your `CLAUDE.md` requires before a push, plus the generated-artifact checks, reported against the baseline.
+9. **Record.** Writes `.claude/runs/YYYY-MM-DD-<slug>.yml`, including the plan record, when the plan was approved, and the baseline failures, then checks it with `scripts/record_gate.py`: the run is not done unless the change still matches the fingerprint taken for the last review and no commit of the run predates a required plan approval (yours; in a delegated run, relayed by the delegator).
 
 It never merges and never pushes to the default branch. It commits only if you asked for commits, a branch or a pull request in the session, and pushes or opens a draft pull request only if you asked for that; otherwise it leaves the change uncommitted with the units listed.
 
@@ -74,17 +74,18 @@ repo: my-project
 outcome: completed
 rounds: 2
 stages: [plan, implement, test, review, implement, test, review]
+plan_approved: n/a            # approval was not required for this task
 findings:
   - stage: implement          # where the mistake was made; caught_by says who noticed
-    category: missing-error-handling
-    severity: major
-    detail: "Dry run still opened the output file for writing."
+    category: doc-drift
+    severity: minor
+    detail: "The --help text still described the old default."
     caught_by: reviewer
     fixed: true
 notes: ""
 ```
 
-A finding is something that went wrong and was caught, by any stage, by you, or by the lead itself. Categories are reused from earlier records and the rules ledger so they can be counted across runs. Records hold no secrets or personal data.
+A finding is something that went wrong and was caught, by any stage, by you, or by the lead itself. Categories start from the catalog in [`docs/categories.md`](docs/categories.md) (each with its usual stage and the cheapest known rule) and are reused from earlier records and the rules ledger so they can be counted across runs; a retro can propose new ones for the catalog. Records hold no secrets or personal data.
 
 On first use the lead suggests adding `.claude/runs/` to `.gitignore`; it does not change it without asking. Commit the records instead if you want them shared.
 

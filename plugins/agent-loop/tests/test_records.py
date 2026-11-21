@@ -434,3 +434,48 @@ def test_documented_run_record_example_parses_with_new_fields(doc):
     if doc.startswith("docs"):  # the contract shows the signature form
         assert set(rec["baseline_failures"][0]) == {"test", "signature"}
     assert isinstance(rec["findings"], list)
+
+
+@pytest.mark.parametrize("value, expected", [
+    ('"2026-11-21T14:05:00+01:00"', "2026-11-21T14:05:00+01:00"),
+    ("2026-11-21T14:05:00Z", "2026-11-21T14:05:00Z"),
+    ("n/a", "n/a"),
+])
+def test_record_with_plan_approved_parses(tmp_path, value, expected):
+    # plan_approved (the gate field) passes through the miner unchanged; records without it stay valid.
+    _write(tmp_path, "2026-11-21-approved.yml", PLAN_RECORD.replace(
+        "baseline_failures:", f"plan_approved: {value}\nbaseline_failures:", 1))
+    _write(tmp_path, "2026-11-20-older.yml", RECORD)
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    by_file = {Path(r["_file"]).name: r for r in recs}
+    assert by_file["2026-11-21-approved.yml"]["plan_approved"] == expected
+    assert "plan_approved" not in by_file["2026-11-20-older.yml"]
+
+
+@pytest.mark.parametrize("doc", ["docs/DESIGN.md", "skills/lead/references/run-record.md"])
+def test_documented_run_record_example_passes_the_gate(doc):
+    # The documented example is a done report, so it must satisfy record_gate.py's checks.
+    from record_gate import approval_failures, review_failures
+    text = (SCRIPT.parent.parent / doc).read_text()
+    example = text.split("```yaml\n", 1)[1].split("```", 1)[0] if doc.startswith("skills") else \
+        text.split("## Run record", 1)[1].split("```yaml\n", 1)[1].split("```", 1)[0]
+    rec = parse_yaml_lite(example)
+    assert "plan_approved" in rec
+    assert {"base", "trunk", "reviewed_diff"} <= set(rec)
+    if doc.startswith("docs"):  # the contract shows real shapes
+        assert len(rec["base"]) == 40
+        assert rec["reviewed_diff"].startswith("sha256:") and len(rec["reviewed_diff"]) == 7 + 64
+    assert review_failures(rec) == []
+    assert approval_failures(rec, required=True, repo=None, base=None) == []
+
+
+def test_record_with_gate_fields_parses(tmp_path):
+    # base, trunk and reviewed_diff (written for record_gate.py) parse; hex runs may be redacted.
+    _write(tmp_path, "2026-11-21-gate.yml", PLAN_RECORD.replace("baseline_failures:", (
+        'plan_approved: "2026-11-21T14:05:00+00:00"\nbase: 9fceb02d0ae598e95dc970b74767f19372d61af8\n'
+        'trunk: origin/main\nreviewed_diff: "sha256:' + "ab" * 32 + '"\nbaseline_failures:'), 1))
+    recs, errors = load_run_records(tmp_path)
+    assert errors == []
+    assert recs[0]["trunk"] == "origin/main"
+    assert {"base", "reviewed_diff", "plan_approved"} <= set(recs[0])
