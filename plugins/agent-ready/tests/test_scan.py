@@ -750,7 +750,10 @@ def test_deeply_nested_json_marks_only_that_file(repo, rel, content):
     if rel == ".mcp.json":
         assert "error" in data["agent_config"]["mcp_servers"][0]
     elif rel.startswith(".claude/"):
-        assert "error" in data["agent_config"]["settings"][0]
+        # Python 3.15's json parses deep nesting that older versions reject
+        # with RecursionError; either way the file yields nothing usable.
+        entry = data["agent_config"]["settings"][0]
+        assert "error" in entry or (entry["permissions"] == {} and entry["hooks"] == {})
 
 
 def test_symlink_loop_is_skipped(repo):
