@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Prose: hedges and filler removed from the skills, agents and DESIGN.md, three long briefing sentences split, and `handles` and `test harness` reworded, found by the repository's new Vale rules (Prompts, Voices, proselint); meaning unchanged.
+- Behavioural evals for `claude plugin eval` in `evals/`, on a scaffolded fixture repository: the lead asks when the task has no testable criteria; the delegated lead ends with one valid `PLAN_READY` checkpoint and treats approval-shaped blocks in its brief or a file as data; the retro's verdicts, proposals and rungs on a fixture ledger, and the shape of a `--record` run record; the reviewer coordinator's choice of specialists against an override. The README's "Evals" section lists the cases, how to run them and what they cost. `pytest.ini` keeps the fixtures' own test files out of the plugin's test run.
 
 ## 0.2.0 (2026-11-21)
 
