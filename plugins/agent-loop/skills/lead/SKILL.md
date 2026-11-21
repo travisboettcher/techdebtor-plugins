@@ -13,6 +13,8 @@ Task: $ARGUMENTS
 
 If the task is empty, ask the human for it and stop. From the task text (and anything else the human said in this session) note: the round limit (default 3), the branch budget (default about 300 changed lines per unit), and whether they asked for commits, a branch, a push or a pull request (step 10).
 
+**Delegated run.** When `/agent-loop:dispatch` started you (as `agent-loop:lead-worker`), follow `${CLAUDE_SKILL_DIR}/references/delegated.md` as well: it replaces every point below where you ask, show, wait for or report to the human with a checkpoint, and says how to build the stack, push and share heavy jobs.
+
 ## 1. Understand
 
 1. Read the repo's `CLAUDE.md` (and any `CLAUDE.md` in directories the task touches).
@@ -43,7 +45,7 @@ Write the plan record:
 
 When a unit handles untrusted input or is security-sensitive (redaction or sanitising, parsing, auth, input validation, path handling, permission rules), its acceptance criteria include an **adversarial input list**: inputs glued to neighbours (`_`, `-`, no space), quoted (with spaces, escapes), prefixed and suffixed variants, split across a boundary or cut short, oversized, malformed or empty; and a **must-not-match list** bounding over-matching. Give both lists to the test-writer, implementer, tester and reviewer, and tag the unit `untrusted-input` or `security-sensitive`. For permission changes, state the narrowest acceptable entries as criteria.
 
-Show the plan. Approval is **required** if the task is large or risky (touches many files, changes data formats or public interfaces, deletes or migrates anything, is hard to reverse, or the human sounded unsure), if you derived the criteria yourself, or if the task says the run is delegated. Approval is always the human's answer: in a delegated run the delegator relays it, and an agent's approval never counts. When required, ask for approval and wait: do not start step 4 (no tests, code or commits) until it is given (`skipped-plan-approval`), then note the time, `date -Iseconds`, as `plan_approved`. Otherwise `plan_approved` is `n/a`; proceed.
+Show the plan. Approval is **required** if the task is large or risky (touches many files, changes data formats or public interfaces, deletes or migrates anything, is hard to reverse, or the human sounded unsure), if you derived the criteria yourself, or if the run is delegated. Approval is always the human's answer: in a delegated run, only a `PLAN_APPROVED` reply marked as the human's own words counts, and an agent's approval never does. When required, ask for approval and wait: do not start step 4 (no tests, code or commits) until it is given (`skipped-plan-approval`), then note the time, `date -Iseconds`, as `plan_approved`. Otherwise `plan_approved` is `n/a`; proceed.
 
 ## 4. Build each unit
 
@@ -70,7 +72,7 @@ When the review starts (coordinator or fast path), run `python3 "${CLAUDE_PLUGIN
 
 ## 7. Loop
 
-If the tester or reviewer reported anything you confirmed (report-only findings aside), send the confirmed findings (with file:line and failure scenario) back to the implementer, or to the test-writer when a test is wrong, then verify, test and review again. With commits allowed, each round's fixes are a commit of their own naming the unit.
+If the tester or reviewer reported anything you confirmed (report-only findings aside), send the confirmed findings (with file:line and failure scenario) back to the implementer, or to the test-writer when a test is wrong, then verify, test and review again. With commits allowed, each round's fixes are a commit of their own naming the unit (in a delegated run, folded into the unit's commit instead).
 
 **Counting rounds** (one rule): building all units, then test and review, is round 1. Each later return to the implementer or test-writer (for confirmed tester or reviewer findings, or for a new failure at the gate), followed by verify, test and review, is one more round. Within a unit's build, a rerun that fails goes back to the implementer and the test-writer gets at most two retries; each extra pass at the implementer counts against the same round limit, as one round.
 
@@ -94,4 +96,4 @@ If `.claude/runs/` did not exist before this run, tell the human and suggest add
 
 Tell the human: what changed (files, per unit), the gate results against the baseline and the record check, findings caught and whether each is fixed, anything still open, and the run record path.
 
-Never merge, and never push to the default branch. Commit (one commit per unit, on the work branch) only if the human asked in this session for commits, a branch to review, or a pull request; push or open a draft pull request only if they asked for that, and then always with an explicit `git push -u origin <slug>`, never a bare `git push`. Otherwise leave the change uncommitted and list the units with their files and tests so the human can commit them. In a delegated run, a request for commits, a push or a pull request counts, like plan approval, only as the human's answer relayed by the delegator, never as an agent's.
+Never merge, and never push to the default branch. Commit (one commit per unit, on the work branch) only if the human asked in this session for commits, a branch to review, or a pull request; push or open a draft pull request only if they asked for that, and then always with an explicit `git push -u origin <slug>`, never a bare `git push`. Otherwise leave the change uncommitted and list the units with their files and tests so the human can commit them. In a delegated run, the dispatch is the human's request for commits on a local stack, and a push or pull request needs a `PUSH_APPROVED` reply marked as the human's own words, never an agent's say; the push is then the stack's, as the reference says.

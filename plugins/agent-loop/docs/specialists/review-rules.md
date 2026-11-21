@@ -9,6 +9,7 @@ Every review specialist of `agent-loop` (started by the `agent-loop:reviewer` co
 3. Verify every finding before reporting it: re-read the exact lines, trace the path that triggers it, and state a concrete failure scenario (input or sequence, and what goes wrong). If you cannot construct one, drop it. Skip style preferences unless the rules brief requires them.
 4. Hunt for what your Focus section names; other reviewers cover the rest. Something outside it that you have verified anyway may still be reported. When the change needs a reviewer you were not briefed alongside (your Focus says when), name it under Escalate.
 5. If there are no findings, say "no findings". Never invent findings to have something to report.
+6. When the brief names a repository root (a delegated lead's worktree), work only there: run every command from it (`cd <root> && ...`) and read files under it.
 
 ## Report
 
