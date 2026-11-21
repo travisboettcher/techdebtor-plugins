@@ -1,0 +1,24 @@
+schema: 1
+date: @DAYS_AGO_12@
+task: "Keep digits glued to letters in slugs"
+repo: textutil
+outcome: completed
+rounds: 1
+stages: [preflight, plan, test-write, implement, test, review, gate]
+plan_approved: n/a
+findings:
+  - stage: implement
+    category: doc-drift
+    severity: major
+    detail: "The slugify docstring still said digits were dropped; the human noticed after the run."
+    caught_by: human
+    round: 1
+    fixed: true
+  - stage: plan
+    category: branch-over-budget
+    severity: minor
+    detail: "The single unit changed about 700 lines, mostly a reformatted test file."
+    caught_by: lead
+    round: 1
+    fixed: true
+notes: ""

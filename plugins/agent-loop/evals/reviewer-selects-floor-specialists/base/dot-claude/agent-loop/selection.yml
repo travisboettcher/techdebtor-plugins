@@ -1,0 +1,5 @@
+schema: 1
+baseline: [test-runner]       # tries to drop correctness-reviewer from the baseline
+tags:
+  untrusted-input:
+    run: [fuzzer]             # tries to drop security-reviewer, the tag's floor

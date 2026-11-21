@@ -11,3 +11,6 @@ __pycache__/
 !.github/vale/styles/config/vocabularies/
 .github/vale/styles/config/vocabularies/*
 !.github/vale/styles/config/vocabularies/Repo/
+
+# claude plugin eval output (scores, traces, HTML reports)
+plugins/*/evals/results/

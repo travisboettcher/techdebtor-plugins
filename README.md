@@ -15,6 +15,8 @@ Claude Code plugins from [techdebtor.io](https://techdebtor.io).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md): adding or changing a plugin, the prose style that CI checks with Vale, token budgets, and how pull requests work. Only generic, reusable plugins belong here.
 
+A plugin may ship behavioural evals for `claude plugin eval` in `plugins/<name>/evals/` (see each plugin's README). `.github/workflows/evals.yml` runs them for every plugin that has them: every case nightly and by hand (or one tag's cases), and the `smoke` cases on a pull request labelled `run-evals`. Its reports, uploaded for 7 days, hold the cases' prompts, the agents' final messages and the graders' evidence, and anyone can download them. They call the Anthropic API, so the workflow needs the repository secret `ANTHROPIC_API_KEY`; without it (and on pull requests from forks) it skips with a notice.
+
 ## Releasing
 
 `claude plugin update` only installs a new release when a plugin's `version` changes, so CI (`.github/scripts/version_check.py`) fails a change to a plugin's shipped files (anything under `plugins/<name>/` except `tests/`, `evals/`, `pytest.ini` and its top-level `README.md` and `CHANGELOG.md`) unless `version` in its `plugin.json` is valid semver and greater than on `main`. Each plugin's `CHANGELOG.md` needs a `## <version>` section for the current version, at the top; a PR stacked on another branch may keep an `## Unreleased` section above it until it targets `main`. Run it locally with `python .github/scripts/version_check.py` after `git fetch origin`.
