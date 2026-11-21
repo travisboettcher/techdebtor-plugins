@@ -1,0 +1,123 @@
+# The default selection table: DESIGN.md, "Specialists". Projects override it in .claude/agent-loop/selection.yml.
+# Every tunable default is here: budget (and its ceiling), the retro's thresholds, each tag's specialists.
+schema: 1
+baseline: [test-runner, correctness-reviewer]   # always run; an override cannot remove them
+budget:                       # per lead run, for heavy specialists beyond the baseline; an override may change it up to budget_max
+  heavy_runs: 6               # heavy specialist runs, all rounds together
+  heavy_minutes: 60           # their wall time, all rounds together
+budget_max:                   # the ceiling no override can raise
+  heavy_runs: 12
+  heavy_minutes: 120
+retro:                        # thresholds for the retro's selection proposals; an override may change them
+  drop_after_runs: 5          # propose dropping a specialist from a tag after this many runs there with no findings
+  add_after_escapes: 2        # propose adding one after its category escaped this many runs with the tag
+specialists:                  # pool: tester (verification) | reviewer (review); weight: light runs in parallel, heavy one at a time
+  test-runner:
+    pool: tester
+    weight: heavy
+    categories: [behaviour-regression, unmet-criterion]
+  measurement-auditor:
+    pool: tester
+    weight: heavy
+    categories: [measurement-attribution-leak, shared-state-false-failures, wrong-auth-identity, silent-allowlist, new-check-not-opt-in, leftover-resources, shell-portability]
+  check-runner:               # chosen when the plan names verify skills, not by a tag
+    pool: tester
+    weight: light
+    categories: []            # a verify skill's findings carry its own category
+  fuzzer:
+    pool: tester
+    weight: heavy
+    categories: [regex-performance, unhandled-input]
+  api-fuzzer:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [unhandled-input, spec-violation]
+  mutation-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [weak-test]
+  system-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [interface-mismatch, behaviour-regression]
+  perf-tester:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [performance-regression, regex-performance]
+  security-scanner:
+    pool: tester
+    weight: heavy
+    opt_in: true
+    categories: [insecure-code, vulnerable-dependency]
+  correctness-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [logic-error, unmet-criterion, scope-mismatch, generated-file-hand-edit, weak-test]
+  security-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [insecure-code, redaction-gap, unhandled-input]
+  permissions-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [over-broad-pre-approval]
+  api-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [breaking-change, interface-mismatch]
+  docs-reviewer:
+    pool: reviewer
+    weight: light
+    categories: [doc-drift, contract-self-contradiction]
+tags:                         # when: what the lead tags; files: what the changed files show (coordinators and the lead add the tag); floor: never removable
+  untrusted-input:
+    when: "Parses, decodes or acts on input from outside the trust boundary: requests, files, arguments, messages, environment."
+    files: "Parsers, request or input handling, deserialisation, decoding of files or messages."
+    run: [fuzzer, security-reviewer]
+    floor: [security-reviewer]
+  security-sensitive:
+    when: "Auth, sessions, secrets, crypto, redaction or sanitising, path handling: code an attacker would target."
+    files: "Auth, sessions, crypto, secrets, subprocess or shell calls, SQL built from strings, file paths from input."
+    run: [security-scanner, mutation-tester, security-reviewer]
+    floor: [security-reviewer]
+  permissions:
+    when: "Changes who or what may do something: allowed-tools, agent tools, settings permissions or hooks, CI tokens, roles, access rules."
+    files: "allowed-tools, agent tools, settings permissions or hooks, CI tokens or permissions blocks, access rules."
+    run: [permissions-reviewer]
+    floor: [permissions-reviewer]
+  data-migration:
+    when: "Changes stored data or its format: migrations, schema changes, backfills, formats older code still reads."
+    run: [system-tester, mutation-tester, api-reviewer]
+  public-api:
+    when: "Changes an interface others depend on: a public function, HTTP API, CLI, events, a contract between components."
+    run: [api-fuzzer, api-reviewer, docs-reviewer]
+  concurrency:
+    when: "Threads, async, locks, queues, retries, or state shared by more than one worker."
+    run: [system-tester]
+  perf-sensitive:
+    when: "Hot paths, loops over unbounded data, queries, caching, or a stated latency or size limit."
+    run: [perf-tester]
+  ui:
+    when: "What a user sees or does in a browser or app."
+    run: [system-tester]
+  test-infra:
+    when: "Test infrastructure: fixtures, conftest or setup files, runners, coverage or test config, CI test jobs. Not ordinary new test files."
+    files: "Fixtures, conftest or setup files, test runner or coverage config, CI test jobs. Not ordinary test files."
+    run: [measurement-auditor]
+    floor: [measurement-auditor]
+  regex:
+    when: "Adds or changes a regular expression or another backtracking matcher."
+    files: "A changed file that defines a regular expression."
+    run: [fuzzer]
+    floor: [fuzzer]
+  dependencies:
+    when: "Adds, removes or upgrades a dependency or lockfile."
+    files: "Manifests and lockfiles."
+    run: [security-scanner]
+  user-facing:
+    when: "Changes behaviour something else describes: options, defaults, output, errors, documented steps."
+    run: [docs-reviewer]

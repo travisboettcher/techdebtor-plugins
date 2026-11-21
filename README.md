@@ -9,7 +9,7 @@ Claude Code plugins from [techdebtor.io](https://techdebtor.io).
 
 | Plugin | What it does |
 |---|---|
-| [`agent-loop`](plugins/agent-loop) | An agent graph that improves itself: `/agent-loop:lead` runs test-writer, implementer, tester and reviewer agents and records what each caught; `/agent-loop:retro` turns recurring mistakes into rules and checks that they worked. |
+| [`agent-loop`](plugins/agent-loop) | An agent graph that improves itself: `/agent-loop:lead` runs test-writer and implementer agents, then verification and review specialists chosen per change, and records what each caught; `/agent-loop:retro` turns recurring mistakes into rules and checks that they worked. |
 
 ## Adding a plugin
 

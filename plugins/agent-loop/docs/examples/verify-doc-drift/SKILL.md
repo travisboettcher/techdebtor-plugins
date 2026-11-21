@@ -22,7 +22,7 @@ This skill reports. It never edits a file; fixes go back to whoever made the cha
 
 ## Input
 
-The change since a base commit: `git diff --name-only <base>`, plus the untracked files that `git status --porcelain` lists with `??`. `<base>` is the base commit the caller names (the `/agent-loop:lead` tester passes the run's base; `$ARGUMENTS` may also name it, or the files to check); if none, `git merge-base HEAD origin/<default>`. Never diff against `HEAD` alone: once the work is committed that diff is empty and the check would pass without seeing anything. Run on its own, `git diff` asks for permission: a pre-approval wide enough for it (`git diff *`) would also admit `--output=<file>`, which writes.
+The change since a base commit: `git diff --name-only <base>`, plus the untracked files that `git status --porcelain` lists with `??`. `<base>` is the base commit the caller names (the `/agent-loop:lead` check runner passes the run's base; `$ARGUMENTS` may also name it, or the files to check); if none, `git merge-base HEAD origin/<default>`. Never diff against `HEAD` alone: once the work is committed that diff is empty and the check would pass without seeing anything. Run on its own, `git diff` asks for permission: a pre-approval wide enough for it (`git diff *`) would also admit `--output=<file>`, which writes.
 
 ## Procedure
 

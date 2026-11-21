@@ -1,6 +1,7 @@
 """The category catalog is the shared vocabulary: every category a shipped doc names must be in it."""
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,15 @@ CONTEXTS = [
     rf"\| `({NAME})` \|",
     rf"`({NAME})`, not",
 ]
+
+
+def other_vocabularies():
+    # Specialist and risk-tag names share the kebab-case shape and the table-cell form; they are
+    # not categories (test_the_vocabularies_are_disjoint keeps them from hiding one).
+    sys.path.insert(0, str(PLUGIN / "scripts"))
+    from retro_mine import DEFAULT_SELECTION, parse_yaml_lite
+    table = parse_yaml_lite(DEFAULT_SELECTION.read_text())
+    return set(table["specialists"]), set(table["tags"])
 
 
 def catalog(text=None):
@@ -53,14 +63,20 @@ def test_catalog_names_are_unique_and_cover_the_starter_set():
 
 def test_the_scan_covers_the_docs_that_name_categories():
     docs = {str(p.relative_to(PLUGIN)) for p in shipped_docs()}
-    assert {"README.md", "docs/DESIGN.md", "docs/categories.md", "agents/reviewer.md", "agents/tester.md",
+    assert {"README.md", "docs/DESIGN.md", "docs/categories.md", "agents/permissions-reviewer.md", "agents/fuzzer.md",
             "skills/lead/SKILL.md", "skills/lead/references/run-record.md", "skills/retro/SKILL.md"} <= docs
 
 
 @pytest.mark.parametrize("doc", [str(p.relative_to(PLUGIN)) for p in shipped_docs()])
 def test_every_category_a_shipped_doc_names_is_in_the_catalog(doc):
-    unknown = named_categories((PLUGIN / doc).read_text()) - set(catalog())
+    specialists, tags = other_vocabularies()
+    unknown = named_categories((PLUGIN / doc).read_text()) - set(catalog()) - specialists - tags
     assert not unknown, f"{doc} names categories missing from docs/categories.md: {sorted(unknown)}"
+
+
+def test_the_vocabularies_are_disjoint():
+    specialists, tags = other_vocabularies()
+    assert not specialists & tags and not (specialists | tags) & set(catalog())
 
 
 def test_removing_a_catalog_row_is_caught():

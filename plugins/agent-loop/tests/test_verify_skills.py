@@ -28,9 +28,10 @@ def test_ladder_tables_list_every_rung_in_order(path):
 
 
 def test_ledger_example_lists_every_rung():
+    # Every ladder rung, plus `selection`: a ledger entry for a change to the selection table.
     text = (PLUGIN / "docs/DESIGN.md").read_text()
     (comment,) = re.findall(r"rung: \w+ +# (.*)$", text, re.M)
-    assert comment.split(" | ") == LADDER
+    assert comment.split(" | ") == LADDER + ["selection"]
 
 
 def test_manifest_descriptions_name_the_check_rung():
@@ -87,11 +88,11 @@ def test_verify_skill_reads_the_change_against_a_base_never_bare_head(source):
     assert "git merge-base HEAD origin/<default>" in text
 
 
-def test_tester_reads_verify_skills_against_the_base():
-    text = (PLUGIN / "agents/tester.md").read_text()
-    rule = text.split("11. **Verify skills.**", 1)[1].split("\n## ", 1)[0]
-    assert "<base>" in rule and "git diff" in rule
-    assert "BLOCKED" in rule and "read-only by rule" in rule
+def test_check_runner_reads_verify_skills_against_the_base():
+    text = (PLUGIN / "agents/check-runner.md").read_text()
+    job = text.split("## Job", 1)[1].split("\n## ", 1)[0]
+    assert "<base>" in job and "git diff" in job
+    assert "BLOCKED" in job and "read-only by rule" in job
 
 
 def test_design_ledger_example_marks_superseded_and_split_history():

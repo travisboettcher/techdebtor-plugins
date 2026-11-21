@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Use this agent when the lead skill has a planned unit with testable acceptance criteria and needs failing tests written from those criteria and the unit's interfaces alone, before any implementation exists. It writes and runs tests only; it never writes production code. See "When to invoke" in the agent body.
+description: "Use this agent when the lead skill needs failing tests written from a unit's criteria, before implementation."
 model: inherit
 color: cyan
 tools: ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]
