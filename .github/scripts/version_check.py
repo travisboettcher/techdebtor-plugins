@@ -7,7 +7,8 @@ users. For every plugin in .claude-plugin/marketplace.json whose source is
 `./plugins/<name>`:
 
 - If its shipped files (everything under plugins/<name>/ except tests/,
-  evals/, pytest.ini, .venv and caches) changed on this branch since it left
+  evals/, pytest.ini, .venv, caches and the top-level README.md and
+  CHANGELOG.md) changed on this branch since it left
   the default branch, its version must be valid semver and strictly greater
   than the default branch's (a plugin new on this branch needs only a valid
   version). This compares against the default branch, not the PR's base, so
@@ -31,7 +32,7 @@ from pathlib import Path
 REMOTE = "origin"
 FALLBACK_DEFAULT_BRANCH = "main"
 PLUGINS_DIR = "plugins"
-NOT_SHIPPED_TOP = {"tests", "evals", "pytest.ini", ".venv"}
+NOT_SHIPPED_TOP = {"tests", "evals", "pytest.ini", ".venv", "README.md", "CHANGELOG.md"}
 CACHE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis"}
 CACHE_SUFFIXES = (".pyc", ".pyo")
 

@@ -109,7 +109,10 @@ def test_changelog_parse_is_linear_on_long_input():
     [
         ("skills/lead/SKILL.md", True),
         (".claude-plugin/plugin.json", True),
-        ("CHANGELOG.md", True),
+        ("CHANGELOG.md", False),
+        ("README.md", False),
+        ("docs/README.md", True),
+        ("skills/s/CHANGELOG.md", True),
         ("scripts/x.py", True),
         ("tests/test_x.py", False),
         ("evals/case.json", False),
@@ -187,6 +190,14 @@ def run(repo, *args):
 
 def test_unchanged_plugin_passes(repo):
     write(repo, "README.md", "x\n")
+    commit(repo)
+    code, out = run(repo, "--base-ref", "main")
+    assert code == 0, out
+
+
+def test_top_level_docs_change_needs_no_bump(repo):
+    write(repo, "plugins/p/README.md", "new docs\n")
+    write(repo, "plugins/p/CHANGELOG.md", "# Changelog\n\n## 0.1.0\n- typo fixed\n")
     commit(repo)
     code, out = run(repo, "--base-ref", "main")
     assert code == 0, out

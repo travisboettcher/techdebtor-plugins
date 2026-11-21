@@ -17,7 +17,7 @@ Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json`
 
 ## Releasing
 
-`claude plugin update` only installs a new release when a plugin's `version` changes, so CI (`.github/scripts/version_check.py`) fails a change to a plugin's shipped files (anything under `plugins/<name>/` except `tests/`, `evals/` and `pytest.ini`) unless `version` in its `plugin.json` is valid semver and greater than on `main`. Each plugin's `CHANGELOG.md` needs a `## <version>` section for the current version, at the top; a PR stacked on another branch may keep an `## Unreleased` section above it until it targets `main`. Run it locally with `python .github/scripts/version_check.py` after `git fetch origin`.
+`claude plugin update` only installs a new release when a plugin's `version` changes, so CI (`.github/scripts/version_check.py`) fails a change to a plugin's shipped files (anything under `plugins/<name>/` except `tests/`, `evals/`, `pytest.ini` and its top-level `README.md` and `CHANGELOG.md`) unless `version` in its `plugin.json` is valid semver and greater than on `main`. Each plugin's `CHANGELOG.md` needs a `## <version>` section for the current version, at the top; a PR stacked on another branch may keep an `## Unreleased` section above it until it targets `main`. Run it locally with `python .github/scripts/version_check.py` after `git fetch origin`.
 
 ## License
 
