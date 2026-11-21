@@ -1,4 +1,5 @@
-"""heavy_lock.py: heavy jobs from several leads run one at a time (docs/DESIGN.md, "Delegated runs").
+"""heavy_lock.py: heavy jobs run one at a time on the machine, across leads and repositories
+(docs/DESIGN.md, "Delegated runs").
 
 Exit codes: the command's own; 75 the lock is busy and nothing ran; 74 cannot lock and nothing ran;
 2 usage; 127 the command was not found.
@@ -138,7 +139,65 @@ def test_a_missing_command_is_127_and_the_lock_is_freed(tmp_path):
     assert _run(_lock(lock, *_py("print('ran')"), wait=0)).returncode == 0
 
 
-@pytest.mark.parametrize("args", [[], ["--lock", "x"], ["--lock", "x", "--"], ["--lock", "x", "--wait", "-1", "--", "true"]])
+@pytest.mark.parametrize("args", [[], ["--lock", "x"], ["--lock", "x", "--"]]
+                         + [["--lock", "x", "--wait", w, "--", "true"] for w in ("-1", "nan", "inf", "-inf", "3601", "1e9")])
 def test_usage_errors_run_nothing(tmp_path, args):
     out = _run([PY, str(SCRIPT), *args], cwd=tmp_path)
     assert out.returncode == 2 and "usage:" in out.stderr
+
+
+def test_the_default_wait_returns_well_within_a_foreground_tool_call():
+    import heavy_lock
+    assert heavy_lock.DEFAULT_WAIT == 90 and heavy_lock.MAX_WAIT == 3600
+
+
+def _env(**kw):
+    env = {k: v for k, v in os.environ.items() if k != "XDG_CACHE_HOME"}
+    env.update(kw)
+    return env
+
+
+@pytest.mark.parametrize("xdg", [True, False])
+def test_the_default_lock_is_one_per_user_in_the_cache_directory(tmp_path, xdg):
+    env = _env(XDG_CACHE_HOME=str(tmp_path / "cache")) if xdg else _env(HOME=str(tmp_path))
+    base = tmp_path / "cache" if xdg else tmp_path / ".cache"
+    out = _run([PY, str(SCRIPT), "--", *_py("print('ran')")], env=env)
+    assert out.returncode == 0 and "ran" in out.stdout, out.stderr
+    lock = base / "agent-loop" / "heavy.lock"
+    assert lock.is_file()
+    assert (lock.parent.stat().st_mode & 0o777) == 0o700 and (lock.stat().st_mode & 0o777) == 0o600
+
+
+def test_the_default_lock_serialises_jobs_from_any_repository(tmp_path):
+    env = _env(XDG_CACHE_HOME=str(tmp_path / "cache"))
+    started = tmp_path / "started"
+    holder = subprocess.Popen([PY, str(SCRIPT), "--label", "repo-a", "--", *_py(
+        f"import pathlib, time; pathlib.Path({str(started)!r}).write_text('x'); time.sleep(3)")],
+        env=env, cwd=tmp_path, start_new_session=True)
+    try:
+        _wait_for(started)
+        other = tmp_path / "other-repo"
+        other.mkdir()
+        out = _run([PY, str(SCRIPT), "--wait", "0", "--", *_py("print('ran')")], env=env, cwd=other)
+        assert out.returncode == 75 and "repo-a" in out.stderr
+    finally:
+        holder.wait(timeout=30)
+
+
+def test_a_symlinked_lock_directory_is_refused(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / "agent-loop").symlink_to(real)
+    out = _run([PY, str(SCRIPT), "--", *_py("print('ran')")], env=_env(XDG_CACHE_HOME=str(tmp_path / "cache")))
+    assert out.returncode == 74 and "cannot lock" in out.stderr and "ran" not in out.stdout
+    assert not (real / "heavy.lock").exists()
+
+
+def test_a_lock_directory_owned_by_someone_else_is_refused(tmp_path, monkeypatch):
+    import heavy_lock
+    d = tmp_path / "agent-loop"
+    d.mkdir(mode=0o700)
+    monkeypatch.setattr(heavy_lock.os, "getuid", lambda: os.stat(d).st_uid + 1)
+    with pytest.raises(OSError, match="not owned"):
+        heavy_lock.lock_dir(d)
