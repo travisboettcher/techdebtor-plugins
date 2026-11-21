@@ -34,6 +34,7 @@ mypy
 phpstan
 [Pp]reflights?
 proptest
+proselint
 Pylint
 pyright
 rantly
