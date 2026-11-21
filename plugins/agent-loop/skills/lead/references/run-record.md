@@ -25,6 +25,11 @@ plan:                         # the plan record from step 3 (or a path to it)
       tags: [untrusted-input]
 plan_approved: "2026-11-21T14:05:00+00:00"   # `date -Iseconds` when the human approved the plan; n/a when approval was not required
 delegated: false              # true when /agent-loop:dispatch started this run (references/delegated.md)
+remotes:                      # delegated runs: the block `record_gate.py remote-snapshot` printed at preflight, unchanged
+  hash: "sha256:..."
+  refs:
+    - "origin refs/heads/main <sha>"
+pushed: []                    # delegated runs: the branches pushed after PUSH_APPROVED
 base: <sha>                   # <base> from preflight
 trunk: origin/main            # <trunk> from preflight
 reviewed_diff: "sha256:..."   # the fingerprint taken when you briefed the last review
@@ -83,8 +88,9 @@ From the repo root:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/record_gate.py" check "<record path>"
 ```
 
-It reads `base`, `trunk`, `reviewed_diff` and `delegated` from the record. Add `--require-plan-approval` when step 3 required approval (`delegated: true` requires it anyway). Never edit the record just to pass the check.
+It reads `base`, `trunk`, `reviewed_diff`, `delegated`, `remotes` and `pushed` from the record. Add `--require-plan-approval` when step 3 required approval (`delegated: true` requires it anyway). Never edit the record just to pass the check.
 - **0**: pass.
 - **1**, review missing or stale: if rounds remain, review the final diff (step 6), update `stages` and `reviewed_diff`, and check again; otherwise set `outcome: in-progress`, stop and report it as not done.
+- **4**, pushed without approval (a remote ref changed since the `remotes` snapshot that `pushed` does not explain): rerunning cannot fix this. Set `outcome: in-progress`, stop and report it to the human at once.
 - **3**, plan approval skipped (commits before the approval, or none recorded when it was required): rerunning cannot fix this. Set `outcome: in-progress`, stop and report it to the human. Only if the human did approve and the record lacks or misstates the time, correct it to the true time and check again.
-- **2**, cannot check (git missing, not a repository, `base` no longer an ancestor after a rebase, unparsable output, unreadable record): report why and stop; do not loop. Fix the record only where you wrote it wrongly.
+- **2**, cannot check (git missing, not a repository, `base` no longer an ancestor after a rebase, unparsable output, unreadable record, an unreachable remote, a snapshot whose hash does not match): report why and stop; do not loop. Fix the record only where you wrote it wrongly.

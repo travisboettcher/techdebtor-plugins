@@ -163,3 +163,17 @@ def test_the_lead_worker_follows_the_lead_skill_in_delegated_mode():
         assert var in body, var
     assert "`PUSH_APPROVED`" in body and "never push to the default branch" in body
     assert "```agent-loop-checkpoint\ncheckpoint: BLOCKED\n" in body
+
+
+def test_every_agent_that_may_run_heavy_jobs_names_the_lock():
+    rules = (PLUGIN / "docs/specialists/verification-rules.md").read_text()
+    assert "heavy_lock.py" in rules and "run_in_background" in rules
+    heavy = {n for n, s in SPECIALISTS.items() if s["weight"] == "heavy"}
+    for name in heavy:   # they follow the shared verification rules
+        assert "docs/specialists/verification-rules.md" in agent(name)[1], name
+    for name in ("implementer", "tester", "lead-worker"):
+        assert "heavy_lock.py" in agent(name)[1], name
+    _, implementer = agent("implementer")
+    assert "run_in_background" in implementer
+    _, writer = agent("test-writer")
+    assert "never the full suite, builds or heavy jobs" in writer

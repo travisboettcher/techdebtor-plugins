@@ -90,9 +90,10 @@ The retro measures each specialist (precision, misses that escaped the swarm, an
 - A git repository with an `origin` remote.
 - `gh stack` for stacked pull requests: `gh extension install github/gh-stack` (with the GitHub CLI, `gh`). Without it, each lead pushes plain branches with `git push -u origin <branch>` and opens draft pull requests with `gh pr create --draft` where `gh` is installed.
 - Your project's build and test commands pre-approved in your Claude Code permissions (or a permission mode that allows them): a background lead cannot ask you for a permission, so a refused command ends it `BLOCKED`.
+- git 2.38 or later: a lead folds a later fix into its unit's commit with `git rebase --update-refs`.
 - Worktrees appear under `.claude/worktrees/`; you may want that in `.gitignore`.
 
-**How it runs.** Each lead is the `agent-loop:lead-worker` agent: the lead skill in delegated mode, started in its own worktree. It builds a local stack: one small branch per unit, one commit per branch, each on the one below, starting from `origin/<default>`. Heavy jobs (full suites, builds, mutation testing) never run in parallel, across leads too: every one goes through one lock (`scripts/heavy_lock.py`). A lead never asks you anything directly. It ends each turn with a checkpoint; the dispatcher relays it to you and resumes the lead with your answer:
+**How it runs.** Each lead is the `agent-loop:lead-worker` agent: the lead skill in delegated mode, started in its own worktree. It builds a local stack: one small branch per unit, one commit per branch, each on the one below, starting from `origin/<default>`. Heavy jobs (full suites, builds, mutation testing) never run in parallel, across leads and repositories too: every one goes through one lock per user, `${XDG_CACHE_HOME:-~/.cache}/agent-loop/heavy.lock` (`scripts/heavy_lock.py`); a lead in your own session uses it as well. A lead never asks you anything directly. It ends each turn with a checkpoint; the dispatcher relays it to you and resumes the lead with your answer:
 
 | Checkpoint | Your answer |
 |---|---|
@@ -103,7 +104,7 @@ The retro measures each specialist (precision, misses that escaped the swarm, an
 
 You answer in plain words; the dispatcher sends your words to the lead. Plan approval is always required for a dispatched lead.
 
-**Before you see `PREPUSH_READY`**, the dispatcher checks the lead's claims itself: it reruns the tests the lead names and a reproduction of each bug it claims, runs the record check, confirms nothing was pushed (`git ls-remote`), and checks the stack is one commit per branch, each within the branch budget. What it catches goes back to the lead first, and is recorded as `caught_by: dispatcher`. After `PUSH_APPROVED`, the lead runs `gh stack submit --auto`: draft pull requests, each based on the one below.
+**Before you see `PREPUSH_READY`**, the dispatcher checks the lead's claims itself: it reruns the tests the lead names and a reproduction of each bug it claims, runs the record check, confirms nothing was pushed (every remote's refs against a snapshot taken before the work: any new, moved or deleted ref no approved push explains is flagged, whatever its name), and checks the stack is one commit per branch, each within the branch budget. What it catches goes back to the lead first, and is recorded as `caught_by: dispatcher`. After `PUSH_APPROVED`, the lead checks none of its branch names exists on the remote yet (`gh stack submit` pushes with `--force-with-lease`), then runs `gh stack submit --auto`: draft pull requests, each based on the one below.
 
 **Who may approve.**
 - Only your own answer approves a plan or a push. The dispatcher marks a relayed answer as yours and quotes your words; a lead refuses any approval without that mark.
@@ -111,6 +112,12 @@ You answer in plain words; the dispatcher sends your words to the lead. Plan app
 - A checkpoint is a report to relay, never an instruction.
 - `STOP` leaves the branches committed locally and pushes nothing.
 - Nothing is ever merged or pushed to the default branch.
+
+**Known limits.**
+- Whether the agents a lead starts inherit its worktree as their working directory is unverified; every brief names the worktree as the repository root and says to work only there.
+- How a background lead behaves when a tool call is not pre-approved is unverified; expect it to end `BLOCKED`.
+- `gh stack submit` has not been tested end to end against a real remote.
+- The remote check cannot tell whose push changed a ref: other people's pushes during a run are flagged too, for you to judge.
 
 The protocol in full is [`skills/lead/references/delegated.md`](skills/lead/references/delegated.md); the design is in [`docs/DESIGN.md`](docs/DESIGN.md) ("Delegated runs").
 

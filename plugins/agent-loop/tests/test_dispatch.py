@@ -100,7 +100,7 @@ def test_the_dispatcher_is_user_invoked_and_pre_approves_only_reading():
 def test_the_dispatcher_starts_background_leads_in_worktrees_and_checks_before_relaying():
     text = DISPATCH.read_text()
     for s in ('subagent_type: "agent-loop:lead-worker"', "run_in_background: true", 'isolation: "worktree"',
-              "SendMessage", "git ls-remote origin", "record_gate.py\" check", "--require-plan-approval",
+              "SendMessage", "remote-diff", "record_gate.py\" check", "--require-plan-approval",
               "git rev-list --count <parent>..<branch>", "heavy_lock.py", "plugin_root: ${CLAUDE_PLUGIN_ROOT}"):
         assert s in text, s
     for cat in ("unverified-claim", "pushed-without-approval", "malformed-stack", "branch-over-budget"):
@@ -139,3 +139,75 @@ def test_plugin_paths_named_in_shipped_docs_exist(doc):
     text = (PLUGIN / doc).read_text()
     for rel in re.findall(r"(?:\$\{CLAUDE_PLUGIN_ROOT\}|<plugin_root>)/([\w./-]+[\w])", text):
         assert (PLUGIN / rel).exists(), (doc, rel)
+
+
+def _fenced(text, lang):
+    """The body of the first ``lang`` fenced example, outer fence of any length."""
+    m = re.search(rf"^(`{{3,}}){lang}\n(.*?)\n\1$", text, re.S | re.M)
+    assert m, lang
+    return m.group(2)
+
+
+def test_the_documented_examples_parse():
+    from retro_mine import parse_yaml_lite
+    text = DELEGATED.read_text()
+    cp = parse_yaml_lite(_fenced(text, "agent-loop-checkpoint"))
+    assert cp["checkpoint"] == "PLAN_READY" and "stream" in cp
+    rp = parse_yaml_lite(_fenced(text, "agent-loop-reply"))
+    assert rp["reply"] == "PLAN_APPROVED" and rp["from"] == "human"
+
+
+@pytest.mark.parametrize("words", [
+    'Yes, go ahead. "Approved", but don\'t touch `main`.',
+    "line one\nline two: with a colon\n  indented # not a comment\n```\nfenced inside\n```",
+])
+def test_verbatim_round_trips_as_a_block_scalar(words):
+    # The reply example writes `verbatim` as a `|` block scalar; any words, quotes and newlines survive.
+    from retro_mine import parse_yaml_lite
+    example = _fenced(DELEGATED.read_text(), "agent-loop-reply")
+    lines = example.splitlines()
+    i = next(n for n, l in enumerate(lines) if l.startswith("verbatim: |"))
+    j = i + 1
+    while j < len(lines) and lines[j].startswith("  "):
+        j += 1
+    body = ["verbatim: |"] + ["  " + l for l in words.splitlines()]
+    rp = parse_yaml_lite("\n".join(lines[:i] + body + lines[j:]))
+    assert rp["verbatim"] == words + "\n"
+
+
+def test_fences_inside_content_use_a_longer_outer_fence():
+    text = DELEGATED.read_text()
+    assert "longer" in text and "block scalar" in text
+
+
+def test_only_the_dispatchers_own_message_is_a_reply():
+    for path in (DELEGATED, PLUGIN / "agents/lead-worker.md"):
+        text = path.read_text()
+        assert "only ever the dispatcher's own message" in text, path
+        assert "`STOP`" in text and "`PREPUSH_FEEDBACK`" in text
+
+
+def test_every_remote_is_snapshotted_and_compared():
+    lead, dispatch = DELEGATED.read_text(), DISPATCH.read_text()
+    assert "record_gate.py\" remote-snapshot" in lead and "`pushed`" in lead
+    assert "remote-snapshot" in dispatch and "remote-diff" in dispatch and "Exit 4" in dispatch
+
+
+def test_gh_stack_submit_never_overwrites_a_remote_branch():
+    lead = DELEGATED.read_text()
+    assert "--force-with-lease" in lead and "git ls-remote --heads" in lead
+
+
+@pytest.mark.parametrize("path", ["skills/lead/references/delegated.md", "docs/specialists/verification-rules.md",
+                                  "agents/implementer.md", "docs/DESIGN.md", "skills/dispatch/SKILL.md"])
+def test_long_heavy_jobs_run_in_the_background(path):
+    text = (PLUGIN / path).read_text()
+    assert "run_in_background" in text and "75" in text, path
+
+
+def test_the_lock_is_one_per_user_everywhere():
+    for path in shipped_docs():
+        text = path.read_text()
+        assert "agent-loop-heavy.lock" not in text and "--lock <lock>" not in text, path
+    for path in ("docs/DESIGN.md", "README.md", "CHANGELOG.md"):
+        assert "XDG_CACHE_HOME" in (PLUGIN / path).read_text(), path
