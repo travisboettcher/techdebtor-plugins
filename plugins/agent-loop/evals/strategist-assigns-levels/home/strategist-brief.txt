@@ -6,7 +6,7 @@ Units and tags: one unit, "index pages by url", tags [public-api]. dump_index (t
 Acceptance criteria, each with its verifier. The plan gave no target levels: assign them.
 - C1: When dump_index is given titles, each index line shall carry the page's "url", "/<slug>/" (tests/test_index.py::IndexTest::test_url_field).
 - C2: When render_links reads an index line, it shall link the title to the line's "url" (tests/test_links.py::LinksTest::test_links_to_url).
-- C3: When a title has accented letters, its url shall drop the accents: "Café au lait" gives "/cafe-au-lait/" (tests/e2e/test_cli.py::CliTest::test_accented_title).
+- C3: When two titles give the same slug, dump_index shall append "-2" to the later one's url: "Hello" then "hello!" give "/hello/" and "/hello-2/" (tests/e2e/test_cli.py::CliTest::test_duplicate_titles).
 Categories you own: wrong-test-level, missing-test-level, missing-contract-test, inverted-pyramid.
 The test runner's report:
 

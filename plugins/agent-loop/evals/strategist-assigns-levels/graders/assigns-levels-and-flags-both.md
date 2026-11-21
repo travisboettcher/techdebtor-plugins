@@ -1,4 +1,0 @@
----
-type: llm
----
-The report assigns each of the three criteria a target level, the lowest that can prove it: C1 (dump_index's url field) and C2 (render_links linking to the url) at unit or component level, and C3 (accents dropped from the url) at unit or component level too. It flags C3 as wrong-test-level, because its only test runs the CLI as a process (system or end-to-end level) though a test of dump_index or slugify could prove it. It flags the interface between dump_index in textutil/index.py (which writes the index) and render_links in textutil/links.py (which reads it), whose field changed from "slug" to "url", as having no contract test (missing-contract-test): each side is tested only against hand-written data, and only the end-to-end test joins them. It reports the pyramid's shape with the test count or run time per level (7 unit tests and 2 system tests).
