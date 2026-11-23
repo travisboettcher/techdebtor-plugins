@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (2026-11-22)
+
+- RUBRIC.md: the reasons given for the contract and codegen layers no longer state unmeasured claims about where bugs and CI failures come from.
+
 ## 0.1.0
 
 - Initial release: `/agent-ready:audit [path] [--json]`, the rubric (`docs/RUBRIC.md`: adoption steps and gates, layers, the four questions, CI capability table, prioritising fixes, the JSON shape) and `scripts/agent_ready_scan.py`, a read-only evidence scanner (standard library only).

@@ -90,7 +90,7 @@ For each layer: what to look for, where the scanner reports it, and what strong 
 
 - **Exists:** kind `contract` (Pact files or dependency, Specmatic, Dredd, Spring Cloud Contract); `tests.by_hint.contract`.
 - **In CI:** check kind `contract` (`can-i-deploy` gates a release).
-- **Why:** contract gaps between components cause most bugs after release. `n/a` for a single component with no consumers.
+- **Why:** without contract tests, two components can drift apart while each one's own tests stay green. `n/a` for a single component with no consumers.
 
 ### Post-deploy smoke checks
 
@@ -134,7 +134,7 @@ Three rows, each with the four questions:
 
 - **Exists:** `codegen.generated_files` (files with a generated header), `generator_configs`, `go_generate`, `generate_targets`, `gitattributes_generated`.
 - **In CI:** check kind `generated_check` (regenerate, then `git diff --exit-code`).
-- **Why it matters for agents:** checked-in generators whose output drives CI were the most common source of CI failures for agents in practice: an agent adds a file and does not rerun the generator, or a new file matches a generator glob and becomes its own CI job. Strong: generated files are marked, the regenerate command is documented, and CI fails on stale output.
+- **Why it matters for agents:** checked-in generators whose output drives CI break CI in ways an agent won't predict: an agent adds a file and does not rerun the generator, or a new file matches a generator glob and becomes its own CI job. Strong: generated files are marked, the regenerate command is documented, and CI fails on stale output.
 
 ## Tools by ecosystem
 

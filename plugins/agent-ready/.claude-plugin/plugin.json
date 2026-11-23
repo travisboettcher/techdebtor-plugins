@@ -1,6 +1,6 @@
 {
   "name": "agent-ready",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Audit how ready a repository is for agentic development: /agent-ready:audit collects evidence read-only, judges each layer on whether it exists, runs in CI, blocks merge and is measured, names the adoption step the repo supports and its bottleneck, and lists fixes prioritised by agent impact.",
   "author": {
     "name": "Travis Boettcher"
