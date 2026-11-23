@@ -82,8 +82,9 @@ It runs the CLI signed out in a fresh home directory, because a signed-in CLI es
 ## Pull requests
 
 - Keep pull requests small: one behaviour each, tests alongside. When a change needs several, stack them with [`gh stack`](https://github.com/github/gh-stack) (`gh extension install github/gh-stack`), each based on the one below.
-- `main` changes only through pull requests, for everyone: the repository's ruleset blocks direct pushes, force pushes and deleting the branch. A pull request needs one approving review, and a new push dismisses earlier approvals. The owner's admin role can merge a pull request without an approval.
-- CI runs on every pull request: each plugin's tests, `claude plugin validate` on the marketplace and each plugin, Vale, the token budget, and the tests of the scripts under `.github/scripts/`. No status check is required by the ruleset yet, so check that CI is green before merging.
+- `main` changes only through pull requests, for everyone: the `protect-main` ruleset blocks direct pushes, force pushes and deleting the branch. A pull request needs one approving review, and a new push dismisses earlier approvals. The owner's admin role can merge a pull request without an approval.
+- CI runs on every pull request: each plugin's tests on Python 3.11 and 3.15, `claude plugin validate` on the marketplace and each plugin, the version-bump check, Vale, the token budget, and the tests of the scripts under `.github/scripts/`. The `required-checks` ruleset requires all of these to pass before a merge, with no bypass for anyone, admins included. Evals are not required: they run nightly, by hand, or on a pull request labelled `run-evals`.
+- Merging a stack: `gh stack merge` cannot use the admin exception, and a pull request in a GitHub stack cannot be merged with `gh pr merge`. Either get an approving review on each, or unstack it (`gh stack unstack`) and merge the pull requests one at a time from the bottom, changing each one's base to `main` first.
 
 ## License
 
