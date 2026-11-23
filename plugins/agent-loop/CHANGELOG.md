@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (2026-11-22)
+
+- DESIGN.md: the reason for contract tests at every boundary no longer states an unmeasured claim about where bugs come from.
+
 ## 0.3.0 (2026-11-21)
 
 The verification pool reasons about test levels and the test pyramid, the plugin ships behavioural evals, and its prompts are linted.
