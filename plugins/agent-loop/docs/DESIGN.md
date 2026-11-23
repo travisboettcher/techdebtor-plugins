@@ -314,7 +314,7 @@ While planning, the lead tags each unit with the risk tags that apply (`plan.tag
 
 ### The selection table
 
-The default table, `docs/selection.yml` (`${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`), maps each tag to the specialists it adds to the baseline. The **floor** of a tag is the specialists no override can remove from it: the checks that ran unconditionally before there were specialists, and the contract tester for `public-api`, since gaps between components cause many of the bugs found after release and a contract check is cheap.
+The default table, `docs/selection.yml` (`${CLAUDE_PLUGIN_ROOT}/docs/selection.yml`), maps each tag to the specialists it adds to the baseline. The **floor** of a tag is the specialists no override can remove from it: the checks that ran unconditionally before there were specialists, and the contract tester for `public-api`, since a contract check is cheap and catches two sides drifting apart.
 
 | Tag | When | Adds | Floor |
 |---|---|---|---|

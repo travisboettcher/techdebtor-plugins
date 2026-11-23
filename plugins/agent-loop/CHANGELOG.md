@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 (2026-11-22)
+
+- DESIGN.md: the second statement of the same unmeasured claim about where bugs come from, missed in 0.3.1, is reworded too.
+
 ## 0.3.1 (2026-11-22)
 
 - DESIGN.md: the reason for contract tests at every boundary no longer states an unmeasured claim about where bugs come from.
